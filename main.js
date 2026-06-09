@@ -28,7 +28,8 @@
 
 const {
   Plugin, ItemView, Modal, Notice,
-  FuzzySuggestModal, PluginSettingTab, Setting, MarkdownRenderer
+  FuzzySuggestModal, PluginSettingTab, Setting, MarkdownRenderer,
+  normalizePath
 } = require('obsidian');
 
 const VIEW_TYPE  = 'index-cards-main';
@@ -204,7 +205,7 @@ function showContextMenu(e, items) {
 //  PERSISTENCE
 // ═════════════════════════════════════════════
 async function loadData(plugin) {
-  const path = obsidian.normalizePath(plugin.app.vault.configDir + '/' + DATA_FILE);
+  const path = normalizePath(plugin.app.vault.configDir + '/' + DATA_FILE);
   try {
     const raw = JSON.parse(await plugin.app.vault.adapter.read(path));
     if (!raw.projects) raw.projects = [];
@@ -223,7 +224,7 @@ async function loadData(plugin) {
 }
 
 async function saveData(plugin, data) {
-  const path = obsidian.normalizePath(plugin.app.vault.configDir + '/' + DATA_FILE);
+  const path = normalizePath(plugin.app.vault.configDir + '/' + DATA_FILE);
   await plugin.app.vault.adapter.write(path, JSON.stringify(data, null, 2));
 }
 
@@ -481,7 +482,7 @@ class IndexCardsView extends ItemView {
   // ══════════════════════════════════════════
   async renderProjects() {
     const data = await loadData(this.plugin);
-    const root = this.containerEl.children[1];
+    const root = this.containerEl.children[1] ?? this.containerEl;
     root.empty();
     root.className = 'ic-view ic-dashboard';
     root.setAttribute('tabindex', '0');
@@ -615,7 +616,7 @@ class IndexCardsView extends ItemView {
   // ══════════════════════════════════════════
   async renderCanvas() {
     const data = await loadData(this.plugin);
-    const root = this.containerEl.children[1];
+    const root = this.containerEl.children[1] ?? this.containerEl;
     root.empty();
     root.className = 'ic-view ic-canvas-view';
     root.setAttribute('tabindex', '0');
@@ -871,7 +872,7 @@ class IndexCardsView extends ItemView {
   async renderPile() {
     const data = await loadData(this.plugin);
     this._ensurePopover();
-    const root = this.containerEl.children[1];
+    const root = this.containerEl.children[1] ?? this.containerEl;
     root.empty();
     root.className = 'ic-view ic-pile-view' + (this.plugin.settings.ruledLines === false ? ' ic-no-rules' : '');
     root.setAttribute('tabindex', '0');
@@ -1068,7 +1069,7 @@ class IndexCardsView extends ItemView {
 
   async renderSubcatView() {
     const data = await loadData(this.plugin);
-    const root = this.containerEl.children[1];
+    const root = this.containerEl.children[1] ?? this.containerEl;
     root.empty();
     root.className = 'ic-view ic-pile-view' + (this.plugin.settings.ruledLines === false ? ' ic-no-rules' : '');
     root.setAttribute('tabindex', '0');
