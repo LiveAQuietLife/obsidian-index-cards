@@ -201,12 +201,13 @@ When enabled, each card gains a **📚 Source / Citation** tab in the editor wit
 - Journal / Series
 - Publisher, Place, Year
 - Edition, Volume, Issue, Pages
+- URL, Accessed (for web sources)
 
 A short citation (author + year) appears in the card footer when source information is present.
 
 ### Citation Parser
 
-Inside the Source tab, a paste box accepts citation text copied from any reference manager or bibliography. Copy a citation from Zotero (*Edit → Copy Citation*), your library database, Google Scholar, or anywhere else — paste it in and click **Parse**. The plugin reads the text and fills in the author, title, journal/series, publisher, place, year, volume, issue, and pages fields automatically.
+Inside the Source tab, a paste box accepts citation text copied from any reference manager, browser extension, or bibliography. Copy a citation from Zotero (*Edit → Copy as → Bibliography Entry*), your library database, Google Scholar, Logos, or anywhere else — paste it in and click **Parse**. The plugin reads the text and fills in the author, title, journal/series, publisher, place, year, volume, issue, and pages fields automatically.
 
 You can also fill in the citation fields manually without using the parser at all.
 
