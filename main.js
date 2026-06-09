@@ -105,6 +105,8 @@ function emptyCard(categoryId = null) {
     volume: '',
     issue: '',
     pages: '',
+    url: '',
+    accessed: '',
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
@@ -1795,7 +1797,7 @@ class CardEditorModal extends Modal {
           else new Notice('Could not parse — please fill fields manually.');
         };
         parseWrap.createEl('button', { text: 'Clear All', cls: 'ic-btn danger' }).onclick = () => {
-          for (const key of ['author','title','sourceTitle','publisher','place','year','edition','volume','issue','pages'])
+          for (const key of ['author','title','sourceTitle','publisher','place','year','edition','volume','issue','pages','url','accessed'])
             this.card[key] = '';
           this._touch();
           buildSourcePanel();
@@ -1807,24 +1809,25 @@ class CardEditorModal extends Modal {
           { key: 'sourceTitle', label: 'Journal / Series', placeholder: 'Journal name or book series' },
           { key: 'publisher',   label: 'Publisher',        placeholder: 'Publisher name' },
           { key: 'place',       label: 'Place',            placeholder: 'City, State' },
+          { key: 'year',        label: 'Year',             placeholder: new Date().getFullYear().toString() },
         ];
         for (const f of fullFields) {
           const row = srcPanel.createDiv({ cls: 'ic-field ic-source-field' });
           row.createEl('label', { text: f.label });
           const inp = row.createEl('input', { type: 'text', placeholder: f.placeholder });
+          if (f.key === 'year') inp.style.maxWidth = '120px';
           inp.value = this.card[f.key] || '';
           inp.oninput = () => { this.card[f.key] = inp.value; this._touch(); };
         }
 
+        // Compact fields — only show when they have data (avoids confusing placeholder values)
         const compactFields = [
-          { key: 'year',    label: 'Year',    placeholder: '2024',  w: '18%' },
           { key: 'edition', label: 'Edition', placeholder: '2nd',   w: '18%' },
           { key: 'volume',  label: 'Vol.',    placeholder: '12',    w: '14%' },
           { key: 'issue',   label: 'Issue',   placeholder: '3',     w: '14%' },
           { key: 'pages',   label: 'Pages',   placeholder: '45–67', w: '30%' },
         ];
-        const hasAnyCitData = compactFields.some(f => this.card[f.key]);
-        const fieldsToShow = hasAnyCitData ? compactFields.filter(f => this.card[f.key]) : compactFields;
+        const fieldsToShow = compactFields.filter(f => this.card[f.key]);
         if (fieldsToShow.length) {
           const compactRow = srcPanel.createDiv({ cls: 'ic-source-compact-row' });
           for (const f of fieldsToShow) {
@@ -1835,6 +1838,25 @@ class CardEditorModal extends Modal {
             inp.oninput = () => { this.card[f.key] = inp.value; this._touch(); };
           }
         }
+
+        // URL field — full width, always shown in source panel
+        const urlRow = srcPanel.createDiv({ cls: 'ic-field ic-source-field' });
+        urlRow.createEl('label', { text: 'URL' });
+        const urlInp = urlRow.createEl('input', { type: 'url', placeholder: 'https://...' });
+        urlInp.value = this.card.url || '';
+        urlInp.oninput = () => { this.card.url = urlInp.value.trim(); this._touch(); };
+
+        // Accessed field — shown only when URL is present or accessed is already set
+        const accessedRow = srcPanel.createDiv({ cls: 'ic-field ic-source-field' });
+        accessedRow.createEl('label', { text: 'Accessed' });
+        const accessedInp = accessedRow.createEl('input', { type: 'text', placeholder: 'e.g. June 9, 2026' });
+        accessedInp.value = this.card.accessed || '';
+        accessedInp.oninput = () => { this.card.accessed = accessedInp.value.trim(); this._touch(); };
+        const toggleAccessed = () => {
+          accessedRow.style.display = (this.card.url || this.card.accessed) ? '' : 'none';
+        };
+        toggleAccessed();
+        urlInp.addEventListener('input', toggleAccessed);
       };
       buildSourcePanel();
     }
@@ -1871,7 +1893,7 @@ class CardEditorModal extends Modal {
     if (!t) return false;
 
     // Clear all citation fields first so no phantom data from previous card
-    for (const key of ['author','title','sourceTitle','publisher','place','year','edition','volume','issue','pages']) {
+    for (const key of ['author','title','sourceTitle','publisher','place','year','edition','volume','issue','pages','url','accessed']) {
       this.card[key] = '';
     }
 
@@ -1904,17 +1926,48 @@ class CardEditorModal extends Modal {
 
     // ── Title in smart or straight quotes ──
     const titleQ = t.match(/[\u201c"]([^\u201d"\u201c"]{3,})[\u201d"]/);
-    if (titleQ) set('title', titleQ[1]);
+    if (titleQ) {
+      // Strip trailing site name suffixes common in web citations:
+      // "Article Title | Site Name" → "Article Title"
+      // "Article Title." (trailing period from closing quote) → "Article Title"
+      let tq = titleQ[1]
+        .replace(/\s*\|\s*[^|]+$/, '')          // strip "| Site Name" suffix
+        .replace(/\s*\*\s*[^*]+\*.*$/, '')       // strip "* Site * by Author" suffix
+        .replace(/^[\s\-–—]+/, '')               // strip leading dashes/spaces
+        .replace(/\.+$/, '')                     // strip trailing periods
+        .trim();
+      set('title', tq);
+    }
 
     // ── Author ──
+    // Detect no-author web citations: "Title. (Year). Site. URL" or "Title – Site. (Year). URL"
+    // In these cases skip author parsing entirely; title is already set from titleQ or set it now
+    const hasUrl = /https?:\/\//.test(t);
+    const noAuthorApaM = !this.card.title && hasUrl
+      ? t.match(/^([^([\n]{5,}?)\.\s*\(\d{4}\)/)
+      : null;
+    if (noAuthorApaM) set('title', noAuthorApaM[1].replace(/\s*[–—-]\s*[^–—\n]+$/, '').trim());
+    // For APA no-author web: "Title. (Year). SiteName. URL" — site name goes to publisher
+    if (noAuthorApaM && !this.card.publisher) {
+      const webSiteM = t.match(/\(\d{4}\)\.\s+([A-Z][^.\n]+?)\.\s+https?:\/\//);
+      if (webSiteM) set('publisher', webSiteM[1].trim());
+    }
     const hasQuote = /[\u201c"]/.test(t);
     // APA: "Last, I. I. (Year)." — strip the year paren from tClean for author parsing
-    const tCleanNoYear = tClean.replace(/\s*\(\d{4}\)\.?/, '').trim();
-    if (hasQuote) {
+    // Strip year paren and trailing role indicators (eds., Eds., editors) before author parsing
+    // Strip year paren and role indicators (eds., Eds., editors) plus everything following them
+    // (title, publisher etc. always come after the role indicator, so safe to truncate there)
+    // Also strip ". In Title..." suffix (APA edited volume) so author loop terminates cleanly
+    const tCleanNoYear = tClean
+      .replace(/\s*\(\d{4}\)\.?/, '')
+      .replace(/[,.]?\s*\b(?:editors?|[Ee]ds?\.?)[.,\s].*/, '')
+      .replace(/\.\s+In\s+[A-Z].*$/, '')
+      .trim();
+    if (!noAuthorApaM && hasQuote) {
       // Journal/chapter: everything before the opening quote
       const authorM = tClean.match(/^(.+?)(?=,?\s*[\u201c"])/);
-      if (authorM) set('author', authorM[1].trim());
-    } else {
+      if (authorM) set('author', authorM[1].trim().replace(/\.\s*\d{4}\.?\s*$/, '').trim());
+    } else if (!noAuthorApaM) {
       // Book with et al.
       const etAlM = tCleanNoYear.match(/^(.+?\bet al\.)/);
       if (etAlM) {
@@ -2006,13 +2059,44 @@ class CardEditorModal extends Modal {
 
     // ── "in Book Title" patterns (dictionary/encyclopedia/edited volume entries) ──
     // Matches: ", in Title, 3rd ed." or ", in Title, ed. Editor" or ", in Title (Publisher"
+    // If an article title is already set, the book goes to sourceTitle; otherwise it IS the title.
     const inAnyM = t.match(/[,\u201d"]\s+in\s+([^,]+?)(?:\s*,\s*(?:\d+(?:st|nd|rd|th)\s+)?ed[^a-z]|\s*,\s*ed\.|\s*\()/i);
-    if (inAnyM) set('sourceTitle', inAnyM[1].trim());
+    if (inAnyM) {
+      if (this.card.title) set('sourceTitle', inAnyM[1].trim());
+      else set('title', inAnyM[1].trim());
+    }
+    // Chicago/SBL: "eds. in The Lexham Bible Dictionary." — no comma/quote before "in"
+    if (!this.card.sourceTitle && !this.card.title) {
+      const edsInM = t.match(/\bEds?\.?\s+in\s+([^.(]+)/i);
+      if (edsInM) set('title', edsInM[1].trim());
+    }
+    // APA edited volume: "(2016). In The Lexham Bible Dictionary. Publisher."
+    if (!this.card.sourceTitle && !this.card.title) {
+      const apaInM = t.match(/\(\d{4}\)\.\s+In\s+([^.]+)\./);
+      if (apaInM) set('title', apaInM[1].trim());
+    }
+    // MLA: "Eds., The Lexham Bible Dictionary, 2016" — Eds. followed by comma then title
+    if (!this.card.sourceTitle && !this.card.title) {
+      const mlaEdsM = t.match(/\bEds?\.,?\s+([^,]+),\s*\d{4}/i);
+      if (mlaEdsM) set('title', mlaEdsM[1].trim());
+    }
+    // Plain Chicago/SBL: "eds. The Lexham Bible Dictionary." or "editors. Title, Publisher"
+    // Catches edited volumes where the title follows eds. with no "in"
+    if (!this.card.title) {
+      const edsTitleM = t.match(/\b(?:editors?|[Ee]ds?\.?)[.,]?\s+([A-Z][^.]+?)(?=\s*[.,])/);
+      if (edsTitleM) set('title', edsTitleM[1].trim());
+    }
 
     // ── Journal after closing quote ──
     // Handles: "Title," Journal Name 59, no. 2 (1966)
     // and:     "Title," Journal Name 59.2 (1966)
     // and:     "Title," Journal Name 59 (1966)
+    // Web article: "Title," SiteName, DD Mon. YYYY or "Title." SiteName. Month YYYY
+    // Stop at comma/period followed by date or month name
+    if (!this.card.sourceTitle) {
+      const webSrcM = t.match(/[\u201d"]\.?\s+([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)*)(?=[.,]\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|\d{4}|\d{1,2}\s))/);
+      if (webSrcM) set('sourceTitle', webSrcM[1].trim());
+    }
     if (!this.card.sourceTitle) {
       const jrnlM = t.match(/[\u201d"],?\s+([A-Z][A-Za-z\s\.]+?)\s+\d+(?:[,\s]+no\.)?\s*[\d.,\s]*[\s\.\(]/);
       if (jrnlM) set('sourceTitle', jrnlM[1].trim());
@@ -2029,6 +2113,30 @@ class CardEditorModal extends Modal {
     else if (volDot)    { set('volume', volDot[1]);  set('issue', volDot[2]); }
     else if (volJrnl)   { set('volume', volJrnl[1]); }
     else if (volWord)   { set('volume', volWord[1]); if (issWord) set('issue', issWord[1]); }
+
+    // ── "edited by" → sourceTitle (Chicago/MLA chapter-in-edited-volume) ──
+    // Handles: '"Title." In Book, edited by ...' and '"Title." Book, edited by ...'
+    if (!this.card.sourceTitle) {
+      const editedByM = t.match(/[\u201d"]\.?\s+(?:[Ii]n\s+)?([A-Z][^,]+?),\s*edited\s+by/i);
+      if (editedByM) set('sourceTitle', editedByM[1].trim());
+    }
+
+    // ── APA chapter: (Year). ArticleTitle. In Editors (Eds.), BookTitle. Publisher ──
+    if (!this.card.title) {
+      const apaTitleM = t.match(/\(\d{4}\)\.\s+([^.]+)\.\s+In\s+/);
+      if (apaTitleM) set('title', apaTitleM[1].trim());
+    }
+    if (!this.card.sourceTitle) {
+      const apaBookM = t.match(/\(Eds?\.\),\s+([^.]+)\./);
+      if (apaBookM) set('sourceTitle', apaBookM[1].trim());
+    }
+
+    // ── MLA plain (no quotes, no eds.): "FirstName LastName, Title, Year" ──
+    // Set title early so publisher fallback guard can catch it
+    if (!this.card.title && !this.card.sourceTitle) {
+      const mlaPlainM = t.match(/^[A-Z][a-z]+\s+[A-Z][a-z]+,\s+([^,]+),\s+\d{4}/);
+      if (mlaPlainM) set('title', mlaPlainM[1].trim());
+    }
 
     // ── Publisher/place ──
     const pubParen = t.match(/\(([A-Z][^:)]+?)\s*:\s*([^,)]+(?:;\s*[^,)]+)*),\s*\d{4}\)/);
@@ -2065,12 +2173,34 @@ class CardEditorModal extends Modal {
                 const commaSegs = beforeYear.split(',');
                 const lastSeg = commaSegs[commaSegs.length - 1].trim();
                 const looksLikePublisher = /^[A-Z]/.test(lastSeg) && lastSeg.length > 3 && lastSeg.split(' ').length <= 6;
-                if (looksLikePublisher) set('publisher', lastSeg);
+                const notAlreadyTitle = (!this.card.title || lastSeg !== this.card.title)
+                                     && (!this.card.sourceTitle || lastSeg !== this.card.sourceTitle);
+                if (looksLikePublisher && notAlreadyTitle) set('publisher', lastSeg);
               }
             }
           }
         }
       }
+    }
+
+    // ── Clean up role-indicator bleed from title field ──
+    // Handles: title="editors", title="eds", title="W.. In The Lexham Bible Dictionary. Lexham Press"
+    // Also: title="Wendy Widder in The Lexham Bible Dictionary" (last-author bleed from eds. in)
+    if (this.card.title) {
+      this.card.title = this.card.title
+        .replace(/^[Ee]ditors?\s*/i, '')              // bare "editors" or "editor"
+        .replace(/^[Ee]ds?\.?\s+[Ii]n\s+/i, '')       // "eds. in Title" → remove prefix
+        .replace(/^[Ee]ds?\.?\s*/i, '')                // bare "eds" or "eds."
+        .replace(/^[A-Z]\.\.\s+[Ii]n\s+/i, '')        // "W.. In Title" → remove initial bleed
+        .replace(/\.\s+[A-Z][^.]+Press[^.]*$/, '')    // strip trailing ". Publisher Press"
+        // "Wendy Widder in The Lexham Bible Dictionary" → strip leading name+in
+        .replace(/^[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\s+in\s+/i, '')
+        .trim();
+      // If title duplicates sourceTitle, clear it (the sourceTitle IS the title for edited volumes)
+      if (this.card.title && this.card.sourceTitle && this.card.title === this.card.sourceTitle) {
+        delete this.card.title;
+      }
+      if (!this.card.title) delete this.card.title;
     }
 
     // ── Fallback title for books without quoted titles ──
@@ -2116,6 +2246,14 @@ class CardEditorModal extends Modal {
     // ── Thesis institution ──
     const thesisM = t.match(/\((?:PhD|MA|ThD|MTh|DMin)[^,]*,\s*([^,)]+)/i);
     if (thesisM) set('publisher', thesisM[1].trim());
+
+    // ── URL ──
+    const urlM = t.match(/https?:\/\/[^\s,]+/);
+    if (urlM) set('url', urlM[0].replace(/[.,]$/, '')); // strip trailing punctuation
+
+    // ── Accessed date ──
+    const accessedM = t.match(/[Aa]ccessed\s+(\d{1,2}\s+\w+\.?\s+\d{4}|\w+\s+\d{1,2},\s+\d{4})/);
+    if (accessedM) set('accessed', accessedM[1].trim());
 
     return filled;
   }
@@ -2258,6 +2396,8 @@ class ExportModal extends Modal {
         ['volume',    card.volume],
         ['issue',     card.issue],
         ['pages',     card.pages],
+        ['url',       card.url],
+        ['accessed',  card.accessed],
       ].filter(([, v]) => v && v.trim()).map(([k, v]) => `${k}: "${v.trim()}"`).join('\n');
       const fm = [
         '---',
@@ -2424,21 +2564,24 @@ class BibliographyModal extends Modal {
     const ed  = card.edition     ? card.edition + '. ' : '';
     const vol = card.volume      ? 'vol. ' + card.volume + (card.issue ? ', no. ' + card.issue + '. ' : '. ') : '';
     const pg  = card.pages       ? ': ' + card.pages    : '';
+    const url = card.url         ? card.url       : '';
+    const acc = card.accessed    ? card.accessed  : '';
+    const urlAcc = url ? url + (acc ? '. Accessed ' + acc : '') : '';
     const pubLine = [pl, pub].filter(Boolean).join(': ');
 
     const clean = s => s.replace(/\.{2,}/g, '.').replace(/,\s*\./, '.').trim();
 
     if (style === 'chicago' || style === 'turabian') {
-      if (st) return clean(a + '. "' + t + '." *' + st + '* ' + vol + yr + pg + '.');
-      return clean(a + '. *' + t + '*. ' + ed + pubLine + (pubLine ? ', ' : '') + yr + '.');
+      if (st) return clean(a + '. "' + t + '." *' + st + '* ' + vol + yr + pg + (urlAcc ? '. ' + urlAcc : '') + '.');
+      return clean(a + '. *' + t + '*. ' + ed + pubLine + (pubLine ? ', ' : '') + yr + (urlAcc ? '. ' + urlAcc : '') + '.');
     }
     if (style === 'sbl') {
-      if (st) return clean(a + '. "' + t + '." *' + st + '* ' + vol + '(' + yr + ')' + pg + '.');
-      return clean(a + '. *' + t + '*. ' + ed + pubLine + (pubLine ? ', ' : '') + yr + '.');
+      if (st) return clean(a + '. "' + t + '." *' + st + '* ' + vol + '(' + yr + ')' + pg + (urlAcc ? '. ' + urlAcc : '') + '.');
+      return clean(a + '. *' + t + '*. ' + ed + pubLine + (pubLine ? ', ' : '') + yr + (urlAcc ? '. ' + urlAcc : '') + '.');
     }
     if (style === 'mla') {
-      if (st) return clean(a + '. "' + t + '." *' + st + '*, ' + vol + yr + ', pp. ' + (card.pages || 'n.p.') + '.');
-      return clean(a + '. *' + t + '*. ' + ed + pub + (pub && yr ? ', ' : '') + yr + '.');
+      if (st) return clean(a + '. "' + t + '." *' + st + '*, ' + vol + yr + ', pp. ' + (card.pages || 'n.p.') + (urlAcc ? '. ' + urlAcc : '') + '.');
+      return clean(a + '. *' + t + '*. ' + ed + pub + (pub && yr ? ', ' : '') + yr + (urlAcc ? '. ' + urlAcc : '') + '.');
     }
     if (style === 'apa') {
       const lastName = a.split(',')[0];
@@ -2447,11 +2590,11 @@ class BibliographyModal extends Modal {
       const auth = initials ? lastName + ', ' + initials : lastName;
       if (st) {
         const volIss = card.volume ? '*' + card.volume + '*' + (card.issue ? '(' + card.issue + ')' : '') : '';
-        return clean(auth + ' (' + yr + '). ' + t + '. *' + st + '*, ' + volIss + pg + '.');
+        return clean(auth + ' (' + yr + '). ' + t + '. *' + st + '*, ' + volIss + pg + (urlAcc ? ' ' + urlAcc : '') + '.');
       }
-      return clean(auth + ' (' + yr + '). *' + t + '*. ' + pub + '.');
+      return clean(auth + ' (' + yr + '). *' + t + '*. ' + pub + (urlAcc ? ' ' + urlAcc : '') + '.');
     }
-    return clean(a + '. *' + t + '*. ' + yr + '.');
+    return clean(a + '. *' + t + '*. ' + yr + (urlAcc ? '. ' + urlAcc : '') + '.');
   }
 
   async generate() {
