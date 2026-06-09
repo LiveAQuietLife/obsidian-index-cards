@@ -638,7 +638,7 @@
 
 /* Subcategory piles row */
 .ic-subcat-row {
-  padding: 12px 28px 0;
+  padding: 12px 28px 24px;
   flex-shrink: 0;
 }
 

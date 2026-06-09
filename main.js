@@ -837,7 +837,7 @@ class IndexCardsView extends ItemView {
     const inner = pop.createDiv('ic-hover-popover-inner');
     if (card.cardTitle) inner.createDiv({ cls: 'ic-hover-title', text: card.cardTitle.toUpperCase() });
     const body = inner.createDiv('ic-hover-body');
-    MarkdownRenderer.renderMarkdown(card.front || '*(empty)*', body, '', this);
+    MarkdownRenderer.render(this.plugin.app, card.front || '*(empty)*', body, '', this.plugin);
     if (card.author || card.year) {
       const cite = [
         card.author ? card.author.split(',')[0] : null,
@@ -1217,7 +1217,7 @@ class IndexCardsView extends ItemView {
     }
 
     const contentEl = front.createDiv({ cls: 'ic-card-front-text' });
-    MarkdownRenderer.renderMarkdown(card.front || '*(empty)*', contentEl, '', this);
+    MarkdownRenderer.render(this.plugin.app, card.front || '*(empty)*', contentEl, '', this.plugin);
     front.createDiv({ cls: 'ic-card-text-fade' });
 
     if (card.tags && card.tags.length) {
@@ -1656,7 +1656,7 @@ class CardEditorModal extends Modal {
         ta.oninput = () => { this.card.front = ta.value; this._touch(); refresh(); };
         blockKeys(ta);
         const prev = splitWrap.createDiv({ cls: 'ic-split-preview' });
-        const refresh = () => { prev.empty(); MarkdownRenderer.renderMarkdown(ta.value || '*Start typing…*', prev, '', null); };
+        const refresh = () => { prev.empty(); MarkdownRenderer.render(this.plugin.app, ta.value || '*Start typing…*', prev, '', this.plugin); };
         refresh();
       } else {
         const ta = nf.createEl('textarea', { placeholder: 'Write your note, quote, or idea here…', cls: 'ic-note-textarea' });
@@ -2196,8 +2196,9 @@ class CardEditorModal extends Modal {
         // "Wendy Widder in The Lexham Bible Dictionary" → strip leading name+in
         .replace(/^[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\s+in\s+/i, '')
         .trim();
-      // If title duplicates sourceTitle, clear it (the sourceTitle IS the title for edited volumes)
-      if (this.card.title && this.card.sourceTitle && this.card.title === this.card.sourceTitle) {
+      // If title duplicates sourceTitle, clear it — BUT only for non-web citations
+      // (web citations like "Claude." Claude, 2026 legitimately have title = site name)
+      if (this.card.title && this.card.sourceTitle && this.card.title === this.card.sourceTitle && !hasUrl) {
         delete this.card.title;
       }
       if (!this.card.title) delete this.card.title;
@@ -2806,7 +2807,7 @@ class CompareModal extends Modal {
       if (!card) { pane.createDiv({ cls: 'ic-compare-pane-empty', text: 'Select a card above.' }); return; }
       if (card.cardTitle) pane.createDiv({ cls: 'ic-compare-card-title', text: card.cardTitle });
       const bodyEl = pane.createDiv('ic-compare-card-body');
-      MarkdownRenderer.renderMarkdown(card.front || '*(empty)*', bodyEl, '', null);
+      MarkdownRenderer.render(this.plugin.app, card.front || '*(empty)*', bodyEl, '', this.plugin);
       if (card.tags && card.tags.length) {
         const tagsEl = pane.createDiv('ic-compare-tags');
         for (const t of card.tags) tagsEl.createSpan({ cls: 'ic-card-tag', text: '#' + t });
