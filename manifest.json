@@ -1,7 +1,7 @@
 {
   "id": "index-cards",
   "name": "Index Cards",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "minAppVersion": "1.4.0",
   "description": "A card-based note-taking system for research and study. Capture ideas and reading notes on virtual index cards, organized into projects and categories.",
   "author": "Live A Quiet Life",
