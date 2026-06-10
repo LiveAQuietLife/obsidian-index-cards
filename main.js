@@ -2630,8 +2630,12 @@ class BibliographyModal extends Modal {
       '*Style: ' + styleLabel + '  ·  Generated: ' + dateStr + '*',
       '',
     ];
+    const seen = new Set();
     for (const card of sorted) {
-      lines.push(this.formatEntry(card, this.citStyle));
+      const entry = this.formatEntry(card, this.citStyle);
+      if (seen.has(entry)) continue;
+      seen.add(entry);
+      lines.push(entry);
       lines.push('');
     }
 
