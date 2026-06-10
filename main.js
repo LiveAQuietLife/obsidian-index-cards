@@ -458,15 +458,17 @@ class IndexCardsView extends ItemView {
 
   // ── Keyboard shortcut attachment ──
   attachShortcuts(root, handlers) {
-    // Remove any stale listener from a previous render — THIS is the root cause
-    // of F key black screens, ESC shaking, and double navigation.
     if (root._shortcutFn) {
-      root.removeEventListener('keydown', root._shortcutFn);
+      document.removeEventListener('keydown', root._shortcutFn);
       root._shortcutFn = null;
     }
     let busy = false;
     const fn = e => {
+      if (!root.isConnected) return;
+      if (!document.contains(root)) return;
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+      const activeLeaf = this.plugin.app.workspace.activeLeaf;
+      if (activeLeaf && !activeLeaf.view.containerEl.contains(root)) return;
       if (!handlers[e.key]) return;
       e.preventDefault();
       e.stopPropagation();
@@ -475,7 +477,7 @@ class IndexCardsView extends ItemView {
       handlers[e.key]();
       setTimeout(() => { busy = false; }, 400);
     };
-    root.addEventListener('keydown', fn);
+    document.addEventListener('keydown', fn);
     root._shortcutFn = fn;
   }
 
@@ -1933,7 +1935,7 @@ class CardEditorModal extends Modal {
       let tq = titleQ[1]
         .replace(/\s*\|\s*[^|]+$/, '')          // strip "| Site Name" suffix
         .replace(/\s*\*\s*[^*]+\*.*$/, '')       // strip "* Site * by Author" suffix
-        .replace(/^[\s\-–—]+/, '')               // strip leading dashes/spaces
+        .replace(/^[\s\-–—\u201c\u201d"]+/, '')  // strip leading dashes, spaces, stray quotes
         .replace(/\.+$/, '')                     // strip trailing periods
         .trim();
       set('title', tq);
@@ -2196,12 +2198,25 @@ class CardEditorModal extends Modal {
         // "Wendy Widder in The Lexham Bible Dictionary" → strip leading name+in
         .replace(/^[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\s+in\s+/i, '')
         .trim();
-      // If title duplicates sourceTitle, clear it — BUT only for non-web citations
-      // (web citations like "Claude." Claude, 2026 legitimately have title = site name)
+      // If title duplicates sourceTitle, clear it — but not for web citations
       if (this.card.title && this.card.sourceTitle && this.card.title === this.card.sourceTitle && !hasUrl) {
         delete this.card.title;
       }
       if (!this.card.title) delete this.card.title;
+    }
+
+    // ── Kindle citation format ──
+    // "Last, First. Title (p. 117). Publisher. Kindle Edition."
+    // Must run before fallback title block to prevent author/title misparse
+    if (t.match(/Kindle Edition/i)) {
+      const kindleAuthorM = tClean.match(/^([A-Z][a-zA-Z\-]+,\s+[A-Z][a-zA-Z\-]+)\./);
+      if (kindleAuthorM) set('author', kindleAuthorM[1].trim());
+      const kindleTitleM = tClean.match(/^[A-Z][a-zA-Z\-]+,\s+[A-Z][a-zA-Z\-]+\.\s+(.+?)\s*\(/);
+      if (kindleTitleM) set('title', kindleTitleM[1].trim());
+      const kindlePubM = tClean.match(/\(p+\.\s*[\d,\-]+\)\.\s+([^.]+)\./);
+      if (kindlePubM) set('publisher', kindlePubM[1].trim());
+      const kindlePagesM = t.match(/\(pp?\.\s*([\d,\-]+)\)/);
+      if (kindlePagesM) set('pages', kindlePagesM[1].trim());
     }
 
     // ── Fallback title for books without quoted titles ──
@@ -2244,7 +2259,6 @@ class CardEditorModal extends Modal {
       }
     }
 
-    // ── Thesis institution ──
     const thesisM = t.match(/\((?:PhD|MA|ThD|MTh|DMin)[^,]*,\s*([^,)]+)/i);
     if (thesisM) set('publisher', thesisM[1].trim());
 
@@ -2557,7 +2571,7 @@ class BibliographyModal extends Modal {
   formatEntry(card, style) {
     // Clean up author: remove trailing period duplicates from initials
     const a   = (card.author || 'Unknown Author').replace(/\.{2,}/g, '.');
-    const t   = card.title       || 'Untitled';
+    const t   = (card.title || 'Untitled').replace(/^[\u201c\u201d"]+|[\u201c\u201d"]+$/g, '').trim();
     const st  = card.sourceTitle || '';
     const pub = card.publisher   || '';
     const pl  = card.place       || '';
