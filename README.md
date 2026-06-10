@@ -65,6 +65,10 @@ The Projects dashboard is your home screen. Each project appears as a tile showi
 
 **Navigating back:** Use the breadcrumb at the top of the view, or press `Escape` to go up one level.
 
+
+![Project View](screenshots/project_view.jpg)
+
+
 ---
 
 ## Categories & Subcategories
