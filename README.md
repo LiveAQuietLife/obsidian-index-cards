@@ -138,6 +138,11 @@ Right-click a card and select **Delete**, or use the delete button inside the ca
 
 Drag and drop cards within a category to rearrange them.
 
+<img src="screenshots/card_view.jpg" width="500" alt="Cards">
+
+<img src="screenshots/edit_card_view.jpg" width="500" alt="Edit Cards">
+
+
 ---
 
 ## Navigating Your Cards
@@ -198,6 +203,9 @@ Click the **Recently Edited** button (clock icon in the toolbar) to see a list o
 
 Select **Compare** from the toolbar to open two cards side by side in a split view. Use the dropdowns in each pane to choose which cards to compare. Useful for checking for overlap, contradiction, or synthesis opportunities across your notes.
 
+
+<img src="screenshots/compare_cards.jpg" width="500" alt="Compare Cards">
+
 ---
 
 ## Academic Mode
@@ -254,6 +262,10 @@ Open *Settings → Index Cards* to configure the plugin.
 | **Timestamp format** | Controls how dates appear in exported card metadata. |
 | **Academic mode** | Enables citation fields, citation parsing, and bibliography generation. Off by default. |
 | **Export filename format** | Controls how spaces appear in exported filenames. |
+
+
+<img src="screenshots/settings_view.jpg" width="500" alt="Settings">
+
 
 ---
 
