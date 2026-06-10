@@ -83,6 +83,12 @@ Inside a project, **categories** are the primary containers for your cards. Thin
 
 **Reordering:** Drag and drop categories to rearrange them within a project.
 
+
+<img src="screenshots/category_view.jpg" width="500" alt="Categories">
+
+<img src="screenshots/subcat_view.jpg" width="500" alt="Categories">
+
+
 ---
 
 ## Cards
