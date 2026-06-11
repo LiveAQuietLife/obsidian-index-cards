@@ -1,12 +1,23 @@
 # Index Cards
 
-A card-based note-taking plugin for Obsidian. Capture ideas, reading notes, and research on virtual index cards — organized into projects and categories, and always just a click away.
+A research capture plugin for Obsidian. Index Cards gives you a dedicated workspace for jotting down ideas, reading notes, and sources while you work — organized into projects and categories, exportable to your vault when you're done.
+
+> **Desktop only.** Index Cards is designed for Obsidian on Windows, macOS, and Linux. Mobile is not supported.
+
+---
+
+## How It's Different
+
+Most "card" plugins in Obsidian are display tools — they take your existing vault notes and render them in a grid or gallery layout. Index Cards does something different: it's a **capture layer** that sits alongside your vault.
+
+Cards are fast to create, easy to reorganize, and meant to be exported when you're done with a project — not accumulated indefinitely. The workflow mirrors the physical index cards researchers have used for decades: write it down quickly, keep it organized, move it into your permanent notes when it's ready.
+
+If you're a researcher, student, or academic writer, **Academic Mode** adds citation fields, a citation parser that reads copied bibliography text from Zotero, Google Scholar, Logos, and other tools, and one-click bibliography generation in Chicago, SBL, MLA, APA, and Turabian styles. Academic Mode is off by default — if you don't need it, you'll never see it.
 
 ---
 
 ## Table of Contents
 
-- [What It Is](#what-it-is)
 - [Installation](#installation)
 - [Getting Started](#getting-started)
 - [Projects](#projects)
@@ -22,24 +33,13 @@ A card-based note-taking plugin for Obsidian. Capture ideas, reading notes, and 
 - [Academic Mode](#academic-mode)
 - [Settings](#settings)
 - [Keyboard Shortcuts](#keyboard-shortcuts)
-
----
-
-## What It Is
-
-Index Cards is built around a simple idea: when you're reading or researching, you shouldn't have to think about where a note goes or how to format it. You just write it down — title, note, maybe a source — and file it. The plugin mimics the physical index card workflow that researchers have used for decades, adapted for a digital vault.
-
-Cards live inside **categories**, categories live inside **projects**, and projects are your top-level workspaces. A project might be a book you're reading, a course you're taking, a research paper you're writing, or anything else you want to keep self-contained.
-
-**Academic Mode** (off by default) adds citation fields, a citation parser, and bibliography generation for those who need it. If you don't, you'll never see those features.
+- [Data Storage](#data-storage)
 
 ---
 
 ## Installation
 
 Search for **Index Cards** in Obsidian's community plugin browser (*Settings → Community plugins → Browse*), install, and enable it. The plugin adds an **Index Cards** icon to your left ribbon.
-
-> **Note:** Index Cards is designed for desktop use. Mobile is not supported.
 
 ---
 
@@ -65,9 +65,7 @@ The Projects dashboard is your home screen. Each project appears as a tile showi
 
 **Navigating back:** Use the breadcrumb at the top of the view, or press `Escape` to go up one level.
 
-
-![Project View](screenshots/project_view.jpg)
-
+[![Project View](https://github.com/LiveAQuietLife/obsidian-index-cards/raw/main/screenshots/project_view.jpg)](https://github.com/LiveAQuietLife/obsidian-index-cards/raw/main/screenshots/project_view.jpg)
 
 ---
 
@@ -83,11 +81,9 @@ Inside a project, **categories** are the primary containers for your cards. Thin
 
 **Reordering:** Drag and drop categories to rearrange them within a project.
 
+[![Categories](https://github.com/LiveAQuietLife/obsidian-index-cards/raw/main/screenshots/category_view.jpg)](https://github.com/LiveAQuietLife/obsidian-index-cards/raw/main/screenshots/category_view.jpg)
 
-<img src="screenshots/category_view.jpg" width="500" alt="Categories">
-
-<img src="screenshots/subcat_view.jpg" width="500" alt="Categories">
-
+[![Subcategories](https://github.com/LiveAQuietLife/obsidian-index-cards/raw/main/screenshots/subcat_view.jpg)](https://github.com/LiveAQuietLife/obsidian-index-cards/raw/main/screenshots/subcat_view.jpg)
 
 ---
 
@@ -138,10 +134,9 @@ Right-click a card and select **Delete**, or use the delete button inside the ca
 
 Drag and drop cards within a category to rearrange them.
 
-<img src="screenshots/card_view.jpg" width="500" alt="Cards">
+[![Cards](https://github.com/LiveAQuietLife/obsidian-index-cards/raw/main/screenshots/card_view.jpg)](https://github.com/LiveAQuietLife/obsidian-index-cards/raw/main/screenshots/card_view.jpg)
 
-<img src="screenshots/edit_card_view.jpg" width="500" alt="Edit Cards">
-
+[![Edit Cards](https://github.com/LiveAQuietLife/obsidian-index-cards/raw/main/screenshots/edit_card_view.jpg)](https://github.com/LiveAQuietLife/obsidian-index-cards/raw/main/screenshots/edit_card_view.jpg)
 
 ---
 
@@ -203,8 +198,7 @@ Click the **Recently Edited** button (clock icon in the toolbar) to see a list o
 
 Select **Compare** from the toolbar to open two cards side by side in a split view. Use the dropdowns in each pane to choose which cards to compare. Useful for checking for overlap, contradiction, or synthesis opportunities across your notes.
 
-
-<img src="screenshots/compare_cards.jpg" width="500" alt="Compare Cards">
+[![Compare Cards](https://github.com/LiveAQuietLife/obsidian-index-cards/raw/main/screenshots/compare_cards.jpg)](https://github.com/LiveAQuietLife/obsidian-index-cards/raw/main/screenshots/compare_cards.jpg)
 
 ---
 
@@ -254,7 +248,7 @@ Supported output styles: Chicago, SBL, MLA, APA, Turabian.
 Open *Settings → Index Cards* to configure the plugin.
 
 | Setting | Description |
-|---|---|
+| --- | --- |
 | **Card size** | Choose a preset card display size, or configure a custom size. |
 | **Editor window size** | Controls the width of the card editor modal. |
 | **Split editor (write + preview)** | When enabled, the card editor shows a live Markdown preview pane alongside the note textarea. |
@@ -263,16 +257,14 @@ Open *Settings → Index Cards* to configure the plugin.
 | **Academic mode** | Enables citation fields, citation parsing, and bibliography generation. Off by default. |
 | **Export filename format** | Controls how spaces appear in exported filenames. |
 
-
-<img src="screenshots/settings_view.jpg" width="500" alt="Settings">
-
+[![Settings](https://github.com/LiveAQuietLife/obsidian-index-cards/raw/main/screenshots/settings_view.jpg)](https://github.com/LiveAQuietLife/obsidian-index-cards/raw/main/screenshots/settings_view.jpg)
 
 ---
 
 ## Keyboard Shortcuts
 
 | Shortcut | Action |
-|---|---|
+| --- | --- |
 | `F` | Open search |
 | `Ctrl` + hover | Preview card content |
 | `Escape` | Close modal / go up one level |
@@ -289,10 +281,4 @@ Index Cards is designed as a **working space, not a permanent archive**. The int
 
 ---
 
-## A Note on the Philosophy
-
-Physical index cards were never meant to be filed forever — they were how you thought through a problem while you were working on it. This plugin works the same way. Cards are fast to create, easy to reorganize, and meant to be exported when you're done with them, not accumulated indefinitely. The simplicity of the card editor is intentional: it keeps the focus on capturing the idea, not formatting it.
-
----
-
-*Index Cards is a community plugin for Obsidian. Feedback and bug reports are welcome via the GitHub repository.*
+*Index Cards is a community plugin for Obsidian. Feedback and bug reports are welcome via the [GitHub repository](https://github.com/LiveAQuietLife/obsidian-index-cards).*
