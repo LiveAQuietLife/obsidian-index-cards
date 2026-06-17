@@ -186,6 +186,8 @@ Right-click a card and select **Export**, or use the export button in the toolba
 
 Exported files include Obsidian-compatible frontmatter with all card fields (title, tags, color, note, and citation fields if Academic Mode is on).
 
+[![Export Outline](https://github.com/LiveAQuietLife/obsidian-index-cards/blob/main/screenshots/export_outline_view.jpg)](https://github.com/LiveAQuietLife/obsidian-index-cards/blob/main/screenshots/export_outline_view.jpg)
+
 ---
 
 ## Recently Edited
