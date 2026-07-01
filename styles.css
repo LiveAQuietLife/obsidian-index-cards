@@ -695,11 +695,6 @@
   box-sizing: border-box;
 }
 
-.ic-card.ic-card-hovered {
-  box-shadow: 0 6px 18px rgba(0,0,0,0.25) !important;
-  border-color: var(--interactive-accent) !important;
-}
-
 .ic-card.ic-card-dragging { opacity: 0.4; }
 
 .ic-card.ic-card-drop-target {
@@ -1555,6 +1550,16 @@
   font-size: 0.85rem;
 }
 
+/* Citation placeholders — kept VERY dim + italic so example formats
+   are never mistaken for real citation data (regression from earlier version). */
+.ic-source-field input::placeholder,
+.ic-source-compact-row input::placeholder,
+.ic-source-locator-row input::placeholder {
+  color: var(--text-faint);
+  opacity: 0.4;
+  font-style: italic;
+}
+
 /* Short citation in card footer */
 .ic-card-citation {
   font-size: 0.68rem;
@@ -1687,4 +1692,153 @@
   background: var(--background-modifier-error);
   border-color: var(--text-error);
   color: var(--text-error);
+}
+
+/* ─────────────────────────────────────────────
+   OUTLINE SANDBOX VIEW
+   ───────────────────────────────────────────── */
+.ic-sandbox-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--background-primary);
+}
+
+/* Header banner */
+.ic-sandbox-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 28px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  flex-shrink: 0;
+}
+
+.ic-sandbox-header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ic-sandbox-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.ic-sandbox-subtitle {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.ic-sandbox-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* Card grid — mirrors .ic-cards-grid so cards flow full-width */
+.ic-sandbox-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 20px 28px 40px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  align-content: flex-start;
+  background: var(--background-primary);
+}
+
+.ic-sandbox-grid-empty {
+  width: 100%;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  padding: 40px 20px;
+  text-align: center;
+}
+
+/* Empty (no outline loaded) state */
+.ic-sandbox-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex: 1;
+  color: var(--text-muted);
+}
+
+.ic-sandbox-empty-icon {
+  font-size: 2.4rem;
+  opacity: 0.7;
+}
+
+/* Sandbox card — drag handle + non-interactive cursor */
+.ic-sandbox-card {
+  cursor: grab;
+}
+
+.ic-sandbox-card:active {
+  cursor: grabbing;
+}
+
+.ic-sandbox-drag-handle {
+  position: absolute;
+  top: 6px;
+  left: 8px;
+  z-index: 2;
+  font-size: 0.95rem;
+  line-height: 1;
+  color: var(--text-faint);
+  cursor: grab;
+  user-select: none;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.ic-sandbox-drag-handle:hover {
+  color: var(--text-muted);
+  background: var(--background-modifier-hover);
+}
+
+/* ─────────────────────────────────────────────
+   CONFIRM MODAL — styled replacement for window.confirm()
+   ───────────────────────────────────────────── */
+.ic-confirm-modal {
+  max-width: 440px;
+}
+
+.ic-confirm-content {
+  padding: 2px 2px 0;
+}
+
+.ic-confirm-title {
+  font-size: 1.05rem;
+  font-weight: 650;
+  color: var(--text-normal);
+  margin-bottom: 10px;
+  line-height: 1.3;
+}
+
+.ic-confirm-message {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  margin-bottom: 20px;
+  word-break: break-word;
+}
+
+.ic-confirm-message p { margin: 0 0 6px; }
+.ic-confirm-message p:last-child { margin-bottom: 0; }
+.ic-confirm-spacer { height: 8px; }
+
+.ic-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }

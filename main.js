@@ -1,6 +1,5 @@
 /*
- * Index Cards — Obsidian Plugin  v1.2
- * Phase 1 — Stable build
+ * Index Cards — Obsidian Plugin  v1.1.1
  *
  * Features:
  *  - Projects (separate workspaces)
@@ -14,16 +13,12 @@
  *  - Move card to category or project
  *  - Duplicate card
  *  - Export cards as individual .md files
+ *  - Export selected cards as outline (single .md with footnotes)
+ *  - Outline Sandbox tab — session-scoped, arrange & export cross-category
  *  - Quick-nav breadcrumb + project jump dropdown
  *  - Keyboard shortcuts
  *  - Settings: card size, editor size, split editor, filename format
- *
- * Deliberately excluded (Phase 2 — Academic Mode):
- *  - Citation fields (author, title, publisher, year, page)
- *  - Zotero integration
- *  - Bibliography generator
- *  - Outline export
- *  - Footnote support
+ *  - Academic Mode: citation fields, Zotero paste-and-parse, bibliography
  */
 
 const {
@@ -32,8 +27,9 @@ const {
   normalizePath
 } = require('obsidian');
 
-const VIEW_TYPE  = 'index-cards-main';
-const DATA_FILE  = 'index-cards-data.json';
+const VIEW_TYPE         = 'index-cards-main';
+const VIEW_TYPE_SANDBOX = 'index-cards-outline-sandbox';
+const DATA_FILE         = 'index-cards-data.json';
 
 // ─────────────────────────────────────────────
 //  Card size presets
@@ -105,6 +101,7 @@ function emptyCard(categoryId = null) {
     volume: '',
     issue: '',
     pages: '',
+    citedPages: '',
     url: '',
     accessed: '',
     createdAt: Date.now(),
@@ -127,6 +124,101 @@ function slugify(text, format) {
   return clean;
 }
 
+// ───────────────────────────────────────────────────────────
+// Chicago/Turabian FOOTNOTE fast-path parser.
+// Logos (and similar) export footnotes as:
+//   [Author, ] Title [, Series] (Place: Publisher, Year), Locator.
+// This shape is distinct from bibliography styles, so we parse it
+// structurally using the "(Place: Publisher, Year)" parenthetical as an
+// anchor. Returns a field object, or null when the signature isn't present
+// (in which case parseClipboardCitation falls through to its heuristics).
+// The trailing locator (page or scripture ref) maps to citedPages.
+function parseFootnoteCitation(text) {
+  const t = String(text || '').trim();
+  if (!t) return null;
+  if (/https?:\/\//.test(t)) return null;  // web citations → existing heuristics
+
+  const parenRe = /\(([^:()]+):\s*([^()]+?),\s*(1[5-9]\d{2}|20[0-4]\d)\)/;
+  const m = t.match(parenRe);
+  if (!m) return null;
+
+  const place      = m[1].trim();
+  const publisher  = m[2].trim();
+  const year       = m[3];
+  const parenStart = m.index;
+  const parenEnd   = m.index + m[0].length;
+
+  let head = t.slice(0, parenStart).replace(/[\s,]+$/, '').trim();
+  if (!head) return null;
+
+  let citedPages = t.slice(parenEnd).replace(/^[)\s,]+/, '').replace(/\s*\.\s*$/, '').trim();
+  if (citedPages.length > 40) citedPages = '';
+
+  // Edition: "electronic ed.", "2nd ed.", "rev. ed.", "3d ed."
+  let edition = '';
+  const edRe = /,?\s*((?:\d+(?:st|nd|rd|th)|\d+d|rev\.?|revised|electronic|abridged|unabridged)\s+ed\.?)/i;
+  const edM = head.match(edRe);
+  if (edM) {
+    edition = edM[1].replace(/\s+/g, ' ').replace(/\.$/, '').trim();
+    head = (head.slice(0, edM.index) + head.slice(edM.index + edM[0].length))
+      .replace(/,\s*,/g, ',').replace(/[\s,]+$/, '').trim();
+  }
+
+  const looksLikeName = seg => {
+    const s = (seg || '').trim();
+    if (!s) return false;
+    if (s.includes(':')) return false;
+    if (/\d/.test(s)) return false;
+    if (/^(the|a|an)\b/i.test(s)) return false;
+    if (s.split(/\s+/).length > 4) return false;
+    return /^[A-Z]/.test(s);
+  };
+
+  // Author vs. no-author
+  let author = '';
+  let remainder = head;
+  const multi = head.match(/^(.+?),\s+(?:and|&)\s+([^,]+?),\s+(.+)$/i);
+  const duo   = head.match(/^([A-Z][^,]+?)\s+(?:and|&)\s+([A-Z][^,]+?),\s+(.+)$/i);
+
+  if (multi && multi[1].split(',').every(looksLikeName) && looksLikeName(multi[2])) {
+    author    = (multi[1] + ', and ' + multi[2]).replace(/\s+/g, ' ').trim();
+    remainder = multi[3].trim();
+  } else if (duo && looksLikeName(duo[1]) && looksLikeName(duo[2])) {
+    author    = (duo[1] + ' and ' + duo[2]).replace(/\s+/g, ' ').trim();
+    remainder = duo[3].trim();
+  } else {
+    const commaIdx = head.indexOf(',');
+    if (commaIdx !== -1) {
+      const first = head.slice(0, commaIdx).trim();
+      if (looksLikeName(first)) {
+        author    = first;
+        remainder = head.slice(commaIdx + 1).trim();
+      }
+    }
+  }
+
+  // Title vs. series
+  let title = remainder;
+  let sourceTitle = '';
+  const seriesKw = /\b(Commentary|Commentaries|Series|Library|Studies|Bibliotheca|Handbook|Hermeneia|Interpretation|Anchor|Old Testament Library|New International)\b/;
+  if (remainder.includes(',')) {
+    const segs = remainder.split(',');
+    for (let i = 1; i < segs.length; i++) {
+      if (seriesKw.test(segs[i])) {
+        const before = segs.slice(0, i).join(',').trim();
+        const after  = segs.slice(i).join(',').trim();
+        if (before && after) { title = before; sourceTitle = after; }
+        break;
+      }
+    }
+  }
+
+  title = title.replace(/[\s,]+$/, '').trim();
+  if (!title) return null;
+
+  return { author, title, sourceTitle, publisher, place, year, edition, citedPages };
+}
+
 function formatTimestamp(ts, format) {
   if (!ts) return '—';
   const d = new Date(ts);
@@ -147,18 +239,34 @@ function debounce(fn, ms) {
   return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
 }
 
-// Focus the first input/textarea inside a container, retrying via rAF
-// until it's in the DOM and enabled (up to ~500 ms).
+// Focus the first matching input/textarea inside a container, retrying via rAF
+// until it's in the DOM and enabled, then RE-ASSERTING focus across several
+// ticks. Obsidian's modal focus management can steal focus back a frame or two
+// after open, and the exact timing varies by machine — a single focus() loses
+// that race intermittently. We re-claim focus only while it has been lost to
+// "nothing" (document.body or the modal shell), never when the user has
+// deliberately moved to another field, so this defeats the steal without
+// fighting the user.
 function focusWhenReady(selector, root, maxTries = 60) {
   let tries = 0;
+  const reassert = el => {
+    [0, 50, 120, 250, 400].forEach(delay => setTimeout(() => {
+      if (!document.contains(el)) return;
+      const ae = document.activeElement;
+      const focusLostToNothing =
+        !ae ||
+        ae === document.body ||
+        (ae.classList && (ae.classList.contains('modal') ||
+                          ae.classList.contains('modal-container') ||
+                          ae.classList.contains('modal-bg')));
+      if (focusLostToNothing) el.focus();
+    }, delay));
+  };
   const attempt = () => {
     const el = root ? root.querySelector(selector) : document.querySelector(selector);
     if (el && document.contains(el) && !el.disabled) {
       el.focus();
-      // Re-attempt after a short delay in case Obsidian steals focus back
-      setTimeout(() => {
-        if (document.activeElement !== el) el.focus();
-      }, 80);
+      reassert(el);
     } else if (tries++ < maxTries) {
       requestAnimationFrame(attempt);
     }
@@ -605,7 +713,11 @@ class IndexCardsView extends ItemView {
     actions.createEl('button', { text: 'Delete', cls: 'ic-pile-action-btn danger' })
       .onclick = async e => {
         e.stopPropagation();
-        if (!confirm(`Delete project "${project.name}"?\n\n${catCount} categories and ${cardCount} cards will be permanently deleted.`)) return;
+        if (!await icConfirm(this.app, {
+          title: `Delete project "${project.name}"?`,
+          message: `${catCount} categories and ${cardCount} cards will be permanently deleted.\nThis cannot be undone.`,
+          confirmText: 'Delete', danger: true,
+        })) return;
         data.projects   = data.projects.filter(p => p.id !== project.id);
         data.categories = data.categories.filter(c => c.projectId !== project.id);
         data.cards      = data.cards.filter(c => c.projectId !== project.id);
@@ -653,6 +765,7 @@ class IndexCardsView extends ItemView {
         el.onclick = () => { closeOverflow(); action(); };
       };
       item('↑ Export cards', () => new ExportModal(this.plugin, data, this.activeProjectId).open());
+      item('📄 Export as Outline', () => new OutlineSelectionModal(this.plugin, data, this.activeProjectId, this.activeProjectName).open());
       item('📚 Bibliography', () => new BibliographyModal(this.plugin, data, this.activeProjectId).open());
       item('⚖️ Compare cards', () => new CompareModal(this.plugin, data, this.activeProjectId, null).open());
       menu.createDiv('ic-overflow-menu-separator');
@@ -801,7 +914,11 @@ class IndexCardsView extends ItemView {
       actions.createEl('button', { text: 'Delete', cls: 'ic-pile-action-btn danger' })
         .onclick = async e => {
           e.stopPropagation();
-          if (!confirm(`Delete category "${name}"?\nCards will become Uncategorized.`)) return;
+          if (!await icConfirm(this.app, {
+            title: `Delete category "${name}"?`,
+            message: 'Cards will become Uncategorized.',
+            confirmText: 'Delete', danger: true,
+          })) return;
           data.categories = data.categories.filter(c => c.id !== catId);
           data.cards = data.cards.map(c => c.categoryId === catId ? { ...c, categoryId: null } : c);
           await saveData(this.plugin, data);
@@ -844,7 +961,7 @@ class IndexCardsView extends ItemView {
       const cite = [
         card.author ? card.author.split(',')[0] : null,
         card.year   ? card.year : null,
-        card.pages  ? 'p. ' + card.pages : null,
+        (card.citedPages || card.pages) ? 'p. ' + (card.citedPages || card.pages) : null,
       ].filter(Boolean).join(', ');
       inner.createDiv({ cls: 'ic-hover-citation', text: cite });
     }
@@ -963,6 +1080,7 @@ class IndexCardsView extends ItemView {
       };
       item('⚖️ Compare cards', () => new CompareModal(this.plugin, data, this.activeProjectId, null).open());
       item('↑ Export cards',   () => new ExportModal(this.plugin, data, this.activeProjectId).open());
+      item('📄 Export as Outline', () => new OutlineSelectionModal(this.plugin, data, this.activeProjectId, this.activeProjectName).open());
       item('📚 Bibliography',  () => new BibliographyModal(this.plugin, data, this.activeProjectId).open());
       menu.createDiv('ic-overflow-menu-separator');
       item('🕒 Recently edited', () => new RecentlyEditedModal(this.plugin, data, card => this.openCardFromSearch(card, data)).open());
@@ -1056,7 +1174,11 @@ class IndexCardsView extends ItemView {
     actions.createEl('button', { text: 'Delete', cls: 'ic-pile-action-btn danger' })
       .onclick = async e => {
         e.stopPropagation();
-        if (!confirm(`Delete subcategory "${sub.name}"?\nCards will move up to the parent category.`)) return;
+        if (!await icConfirm(this.app, {
+          title: `Delete subcategory "${sub.name}"?`,
+          message: 'Cards will move up to the parent category.',
+          confirmText: 'Delete', danger: true,
+        })) return;
         data.categories = data.categories.filter(c => c.id !== sub.id);
         data.cards = data.cards.map(c => c.subcategoryId === sub.id ? { ...c, subcategoryId: null } : c);
         await saveData(this.plugin, data);
@@ -1262,7 +1384,7 @@ class IndexCardsView extends ItemView {
       const citeStr = [
         card.author ? card.author.split(',')[0] : null,
         card.year   ? card.year : null,
-        card.pages  ? 'p. ' + card.pages : null,
+        (card.citedPages || card.pages) ? 'p. ' + (card.citedPages || card.pages) : null,
       ].filter(Boolean).join(', ');
       footer.createDiv({ cls: 'ic-card-citation', text: citeStr });
     }
@@ -1284,7 +1406,11 @@ class IndexCardsView extends ItemView {
       .onclick = async e => {
         e.stopPropagation();
         const delLabelBtn = (card.cardTitle || card.front.slice(0, 40) || 'this card').replace(/\n/g, ' ').trim();
-        if (!confirm(`Delete "${delLabelBtn}"?\nThis cannot be undone.`)) return;
+        if (!await icConfirm(this.app, {
+          title: `Delete "${delLabelBtn}"?`,
+          message: 'This cannot be undone.',
+          confirmText: 'Delete', danger: true,
+        })) return;
         data.cards = data.cards.filter(c => c.id !== card.id);
         await saveData(this.plugin, data);
         await this.renderPile();
@@ -1343,7 +1469,11 @@ class IndexCardsView extends ItemView {
           text: '🗑  Delete Card', danger: true,
           action: async () => {
             const ctxLabel = (card.cardTitle || card.front.slice(0, 40) || 'this card').replace(/\n/g, ' ').trim();
-            if (!confirm(`Delete "${ctxLabel}"?\nThis cannot be undone.`)) return;
+            if (!await icConfirm(this.app, {
+              title: `Delete "${ctxLabel}"?`,
+              message: 'This cannot be undone.',
+              confirmText: 'Delete', danger: true,
+            })) return;
             data.cards = data.cards.filter(c => c.id !== card.id);
             await saveData(this.plugin, data);
             await this.renderPile();
@@ -1799,7 +1929,7 @@ class CardEditorModal extends Modal {
           else new Notice('Could not parse — please fill fields manually.');
         };
         parseWrap.createEl('button', { text: 'Clear All', cls: 'ic-btn danger' }).onclick = () => {
-          for (const key of ['author','title','sourceTitle','publisher','place','year','edition','volume','issue','pages','url','accessed'])
+          for (const key of ['author','title','sourceTitle','publisher','place','year','edition','volume','issue','pages','citedPages','url','accessed'])
             this.card[key] = '';
           this._touch();
           buildSourcePanel();
@@ -1822,24 +1952,32 @@ class CardEditorModal extends Modal {
           inp.oninput = () => { this.card[f.key] = inp.value; this._touch(); };
         }
 
-        // Compact fields — only show when they have data (avoids confusing placeholder values)
-        const compactFields = [
-          { key: 'edition', label: 'Edition', placeholder: '2nd',   w: '18%' },
-          { key: 'volume',  label: 'Vol.',    placeholder: '12',    w: '14%' },
-          { key: 'issue',   label: 'Issue',   placeholder: '3',     w: '14%' },
-          { key: 'pages',   label: 'Pages',   placeholder: '45–67', w: '30%' },
-        ];
-        const fieldsToShow = compactFields.filter(f => this.card[f.key]);
-        if (fieldsToShow.length) {
-          const compactRow = srcPanel.createDiv({ cls: 'ic-source-compact-row' });
-          for (const f of fieldsToShow) {
-            const cell = compactRow.createDiv({ attr: { style: 'width:' + f.w + ';flex-shrink:0;' } });
-            cell.createEl('label', { text: f.label, attr: { style: 'font-size:0.68rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);display:block;margin-bottom:3px;' } });
-            const inp = cell.createEl('input', { type: 'text', placeholder: f.placeholder, attr: { style: 'width:100%;box-sizing:border-box;' } });
-            inp.value = this.card[f.key] || '';
-            inp.oninput = () => { this.card[f.key] = inp.value; this._touch(); };
-          }
-        }
+        // Small field cell builder — used by both rows below
+        const labelStyle = 'font-size:0.68rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);display:block;margin-bottom:3px;';
+        const buildCell = (rowEl, f) => {
+          const cell = rowEl.createDiv({ attr: { style: 'width:' + f.w + ';flex-shrink:0;' } });
+          cell.createEl('label', { text: f.label, attr: { style: labelStyle } });
+          const inp = cell.createEl('input', { type: 'text', placeholder: f.placeholder, attr: { style: 'width:100%;box-sizing:border-box;' } });
+          inp.value = this.card[f.key] || '';
+          inp.oninput = () => { this.card[f.key] = inp.value; this._touch(); };
+        };
+
+        // Source descriptors — always visible so they're reachable for manual entry
+        // when the parser misses or mangles a citation.
+        const descriptorRow = srcPanel.createDiv({ cls: 'ic-source-compact-row' });
+        for (const f of [
+          { key: 'edition', label: 'Edition', placeholder: '2nd', w: '20%' },
+          { key: 'volume',  label: 'Vol.',    placeholder: '12',  w: '16%' },
+          { key: 'issue',   label: 'Issue',   placeholder: '3',   w: '16%' },
+        ]) buildCell(descriptorRow, f);
+
+        // Page locators — Pages (full article range → bibliography),
+        // Cited Pages (specific page on this card → footnotes). Always visible.
+        const locatorRow = srcPanel.createDiv({ cls: 'ic-source-compact-row ic-source-locator-row' });
+        for (const f of [
+          { key: 'pages',      label: 'Pages',       placeholder: '45–67', w: '35%' },
+          { key: 'citedPages', label: 'Cited Pages', placeholder: '52',    w: '35%' },
+        ]) buildCell(locatorRow, f);
 
         // URL field — full width, always shown in source panel
         const urlRow = srcPanel.createDiv({ cls: 'ic-field ic-source-field' });
@@ -1871,7 +2009,11 @@ class CardEditorModal extends Modal {
       const delBtn = footer.createEl('button', { text: '🗑 Delete', cls: 'ic-btn danger' });
       delBtn.onclick = async () => {
         const label = (this.card.cardTitle || this.card.front?.slice(0, 40) || 'this card').replace(/\n/g, ' ').trim();
-        if (!confirm(`Delete "${label}"?\nThis cannot be undone.`)) return;
+        if (!await icConfirm(this.app, {
+          title: `Delete "${label}"?`,
+          message: 'This cannot be undone.',
+          confirmText: 'Delete', danger: true,
+        })) return;
         const data = await loadData(this.plugin);
         data.cards = data.cards.filter(c => c.id !== this.card.id);
         await saveData(this.plugin, data);
@@ -1895,7 +2037,7 @@ class CardEditorModal extends Modal {
     if (!t) return false;
 
     // Clear all citation fields first so no phantom data from previous card
-    for (const key of ['author','title','sourceTitle','publisher','place','year','edition','volume','issue','pages','url','accessed']) {
+    for (const key of ['author','title','sourceTitle','publisher','place','year','edition','volume','issue','pages','citedPages','url','accessed']) {
       this.card[key] = '';
     }
 
@@ -1910,6 +2052,72 @@ class CardEditorModal extends Modal {
       filled = true;
     };
 
+    // ═══════════════════════════════════════════════════════════════
+    // FOOTNOTE FAST-PATH — Chicago/Turabian/Logos book & no-author works
+    // Structure:  [Author, ] Title [, Series] (Place: Publisher, Year), Locator.
+    // The parenthetical "(Place: Publisher, Year)" is a reliable anchor:
+    // everything before "(" is author/title/series; everything after "),"
+    // is the locator (page or scripture reference → Cited Pages).
+    // Fires ONLY on that signature and when no quoted chapter title precedes
+    // the paren; otherwise control falls through to the heuristic engine
+    // below, which is left completely unchanged.
+    // ═══════════════════════════════════════════════════════════════
+    const fnParen = t.match(/\(([^):]+?):\s*([^)]+?),\s*(1[5-9]\d{2}|20[012]\d)\)/);
+    const preHasQuote = fnParen ? /["\u201c\u201d]/.test(t.slice(0, t.indexOf(fnParen[0]))) : false;
+    if (fnParen && !preHasQuote) {
+      set('place',     fnParen[1].trim());
+      set('publisher', fnParen[2].trim());
+      set('year',      fnParen[3]);
+
+      const parenIdx = t.indexOf(fnParen[0]);
+      let pre   = t.slice(0, parenIdx).replace(/[,\s]+$/, '').trim();
+      const post = t.slice(parenIdx + fnParen[0].length);
+
+      // Locator → Cited Pages (the specific page or scripture ref being cited)
+      const loc = post.replace(/^[),\s]+/, '').replace(/[.\s]+$/, '').trim();
+      if (loc && loc.length <= 40) set('citedPages', loc);
+
+      // Edition: numbered ("2nd ed.") or word ("electronic ed.", "rev. ed.") — peel out of pre
+      const edM = pre.match(/,?\s*((?:\d+(?:st|nd|rd|th)|[Ee]lectronic|[Rr]evised|[Rr]ev\.|[Ee]xpanded|[Aa]bridged|[Uu]pdated|[Ee]nlarged)\s+ed\.?)/);
+      if (edM) { set('edition', edM[1].trim()); pre = pre.replace(edM[0], '').replace(/[,\s]+$/, '').trim(); }
+
+      // Peel the author run from the front: consume comma segments while they
+      // look like personal names, stopping at the first title-like segment.
+      const segs = pre.split(',').map(s => s.trim()).filter(Boolean);
+      const startsTitle = s => /^(the|a|an)\b/i.test(s) || /:/.test(s) || /\d/.test(s) || s.split(/\s+/).length > 5;
+      const isName = s => {
+        const w = s.replace(/^(?:and|&)\s+/i, '').trim();
+        if (!w || startsTitle(w)) return false;
+        const words = w.split(/\s+/);
+        return words.length <= 4 && words.every(x => /^[A-Z]/.test(x));
+      };
+      // Continuation authors (position > 0) must look like a full name — contain
+      // a space (First Last) or a period (an initial). The first author may be a
+      // mononym ("Augustine", "Josephus"). This stops single-word title fragments
+      // like the books in "Amos, Jonah, & Micah" from being read as authors.
+      const isFullName = s => {
+        const w = s.replace(/^(?:and|&)\s+/i, '').trim();
+        return /\s/.test(w) || /\./.test(w);
+      };
+      let ai = 0;
+      const authorSegs = [];
+      while (ai < segs.length && isName(segs[ai]) && (ai === 0 || isFullName(segs[ai])))
+        authorSegs.push(segs[ai++]);
+      // A citation must retain a title — never let the author run swallow everything.
+      if (ai >= segs.length && authorSegs.length) { authorSegs.pop(); ai--; }
+      if (authorSegs.length) set('author', authorSegs.join(', '));
+
+      // Remaining segments = title (+ an optional trailing series like a commentary set)
+      const titleSegs = segs.slice(ai);
+      const isSeriesLike = s => /\b(Commentar(?:y|ies)|Series|Library|Studies|Theology|Bible Speaks|Handbook|Hermeneia|Anchor|Pillar|Tyndale|NICOT|NICNT|NIGTC|BECNT|WBC|Word Biblical)\b/i.test(s);
+      if (titleSegs.length >= 2 && isSeriesLike(titleSegs[titleSegs.length - 1])) {
+        set('sourceTitle', titleSegs.pop().trim());
+      }
+      if (titleSegs.length) set('title', titleSegs.join(', ').trim());
+
+      return filled;
+    }
+
     // Strip parenthetical full names e.g. "(Raymond Edward)"
     const tClean = t.replace(/\([A-Z][a-z]+(\s[A-Z][a-z]+)+\)/g, '').replace(/\s+/g, ' ').trim();
 
@@ -1921,6 +2129,11 @@ class CardEditorModal extends Modal {
     const pageColon = t.match(/\(\d{4}\):\s*([\d\u2013\u2014\-]+)/);
     const pagePP    = t.match(/\bpp?\.\s*([\d\u2013\u2014\-]+)/i);
     set('pages', (pageColon || pagePP || [])[1]);
+    // Chicago footnote locator: "Year, PageNum." — bare page number at end of citation
+    if (!this.card.pages) {
+      const pageTrail = t.match(/\b(?:1[5-9]\d{2}|20[012]\d),\s*(\d{1,3}(?:[–\-]\d{1,3})?)\.?\s*$/);
+      if (pageTrail) set('pages', pageTrail[1]);
+    }
 
     // ── Edition ── "3rd ed." or "3d ed."
     const edM = t.match(/\b(\d+(?:st|nd|rd|th)(?:\s+ed\.)?|[Tt]hird|[Ss]econd|[Ff]irst)\s+ed\./i);
@@ -1962,7 +2175,7 @@ class CardEditorModal extends Modal {
     // Also strip ". In Title..." suffix (APA edited volume) so author loop terminates cleanly
     const tCleanNoYear = tClean
       .replace(/\s*\(\d{4}\)\.?/, '')
-      .replace(/[,.]?\s*\b(?:editors?|[Ee]ds?\.?)[.,\s].*/, '')
+      .replace(/[,.]?\s*\b(?:editors?|[Ee]ds?\.)[\.,\s].*/, '')
       .replace(/\.\s+In\s+[A-Z].*$/, '')
       .trim();
     if (!noAuthorApaM && hasQuote) {
@@ -2051,7 +2264,10 @@ class CardEditorModal extends Modal {
               const parts2 = tCleanNoYear.split(',');
               const secondSeg = parts2.length >= 2 ? parts2[1].trim() : '';
               const looksLikeName = secondSeg && secondSeg.split(' ').length <= 2 && secondSeg.length < 25 && /^[A-Z]/.test(secondSeg) && !/\band\b/.test(secondSeg);
+              // "Webb, Barry. The Message..." — full first name followed by period + capital word
+              const firstNameOnly = !looksLikeName && secondSeg.match(/^([A-Z][a-z]+)\.\s+[A-Z]/);
               if (looksLikeName) set('author', (parts2[0] + ', ' + secondSeg).trim());
+              else if (firstNameOnly) set('author', (parts2[0] + ', ' + firstNameOnly[1]).trim());
               else set('author', parts2[0].trim());
             }
           }
@@ -2140,6 +2356,30 @@ class CardEditorModal extends Modal {
       if (mlaPlainM) set('title', mlaPlainM[1].trim());
     }
 
+    // ── Fallback title for books without quoted titles ──
+    // Must run before publisher and series detection (both depend on this.card.title)
+    if (!this.card.title) {
+      const afterAuthor = this.card.author
+        ? tCleanNoYear.slice(tCleanNoYear.indexOf(this.card.author.split(',')[0]) + this.card.author.length).replace(/^[.,\s]+/, '')
+        : tCleanNoYear;
+      // Stop at period, paren, or comma (Chicago W uses comma between title and series)
+      const bookTitleM = afterAuthor.match(/^([^.,(]+?)(?:[.,]|(?:\s*,\s*(?:vol\.|[A-Z][A-Za-z\s]{4,40})\s*\()|\s*\()/i);
+      if (bookTitleM) {
+        let bt = bookTitleM[1].trim().replace(/,?\s*vol\..*$/i,'').trim();
+        // Re-attach a comma-tail that is a volume/chapter/part DESIGNATOR — it's a
+        // subtitle, not a series (e.g. "The Book of Isaiah, Chapters 1–39"). Without
+        // this, the comma-stop above truncates the title and the orphaned tail gets
+        // misfiled as the series, evicting the real one. Scoped to Chapters/Part/Book/
+        // Section + number; "vol." is deliberately excluded (it has its own handlers).
+        const rest = afterAuthor.slice(afterAuthor.indexOf(bt) + bt.length);
+        const tail = rest.match(/^,\s*[^.]+/);
+        if (tail && /^,\s*(Chapters?|Part|Books?|Sections?)\s+[\dIVXLC]/i.test(tail[0])) {
+          bt += tail[0].replace(/\s+$/, '');
+        }
+        set('title', bt);
+      }
+    }
+
     // ── Publisher/place ──
     const pubParen = t.match(/\(([A-Z][^:)]+?)\s*:\s*([^,)]+(?:;\s*[^,)]+)*),\s*\d{4}\)/);
     if (pubParen) { set('place', pubParen[1].trim()); set('publisher', pubParen[2].trim()); }
@@ -2153,7 +2393,14 @@ class CardEditorModal extends Modal {
         if (pubOnly) set('publisher', pubOnly[1].trim());
         else {
           // Period-anchored place: Pub, Year (allows dots in publisher names like W.B.)
-          const pubPlain = t.match(/\.\s+([A-Z][^.:]+(?:;\s*[A-Z][^.:]+)?)\s*:\s*([A-Z].+?),\s*\d{4}/);
+          let pubPlain = t.match(/\.\s+([A-Z][^.:]+(?:;\s*[A-Z][^.:]+)?)\s*:\s*([A-Z].+?),\s*\d{4}/);
+          // Guard: if the match is within the title's subtitle colon (e.g. "Isaiah: On Eagles' Wings"),
+          // retry from after the title to find the real place: publisher pair.
+          if (pubPlain && this.card.title && this.card.title.includes(pubPlain[1].trim())) {
+            const tIdx = t.indexOf(this.card.title.slice(0, 20));
+            const afterT2 = tIdx !== -1 ? t.slice(tIdx + this.card.title.length) : null;
+            pubPlain = afterT2 ? afterT2.match(/\.\s+([A-Z][^.:]+(?:;\s*[A-Z][^.:]+)?)\s*:\s*([A-Z].+?),\s*\d{4}/) : null;
+          }
           if (pubPlain) { set('place', pubPlain[1].trim()); set('publisher', pubPlain[2].trim()); }
           else {
             // MLA: "Title. Publisher; W.B. Publisher, Year" — no place
@@ -2219,17 +2466,6 @@ class CardEditorModal extends Modal {
       if (kindlePagesM) set('pages', kindlePagesM[1].trim());
     }
 
-    // ── Fallback title for books without quoted titles ──
-    // Must run before series detection, which depends on this.card.title
-    if (!this.card.title) {
-      const afterAuthor = this.card.author
-        ? tCleanNoYear.slice(tCleanNoYear.indexOf(this.card.author.split(',')[0]) + this.card.author.length).replace(/^[.,\s]+/, '')
-        : tCleanNoYear;
-      // Stop at period, paren, or comma (Chicago W uses comma between title and series)
-      const bookTitleM = afterAuthor.match(/^([^.,(]+?)(?:[.,]|(?:\s*,\s*(?:vol\.|[A-Z][A-Za-z\s]{4,40})\s*\()|\s*\()/i);
-      if (bookTitleM) set('title', bookTitleM[1].trim().replace(/,?\s*vol\..*$/i,'').trim());
-    }
-
     // ── Series ──
     if (!this.card.sourceTitle) {
       const seriesOf = t.match(/vol\.\s*\d+\s+of\s+([^(,]+)/i);
@@ -2248,13 +2484,22 @@ class CardEditorModal extends Modal {
       }
     }
     // Bare period-delimited series: "Title. Series Name. Place: Publisher, Year"
+    // Uses matchAll to skip "Edited by..." clauses and name-like segments (e.g. "Motyer and Tidball")
     if (!this.card.sourceTitle && this.card.title) {
       const titleStart = t.indexOf(this.card.title.slice(0, 15));
       if (titleStart !== -1) {
         const afterTitle = t.slice(titleStart + this.card.title.length);
-        const seriesBare = afterTitle.match(/^[.,]\s+([A-Z][^.;]{4,60})\.\s+[A-Z(]/);
-        if (seriesBare && !/Press|Publisher|Eerdmans|Zondervan|Baker|Fortress|Brill|Mohr/i.test(seriesBare[1])) {
-          set('sourceTitle', seriesBare[1].trim());
+        const seriesRe = /[.,]\s+([A-Z][^.;]{4,60})(?=\.\s+[A-Z(])/g;
+        // Matches "Name and Other Name" patterns — used to skip editor-name segments
+        const isNameLike = s => /^(?:[A-Z]\.\s*)*[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?(?: and (?:[A-Z]\.\s*)*[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)*$/.test(s);
+        let sm;
+        while ((sm = seriesRe.exec(afterTitle)) !== null) {
+          const candidate = sm[1].trim();
+          if (/^[Ee]dited\b/i.test(candidate)) continue;           // skip "Edited by J..." sentence
+          if (/Press|Publisher|Eerdmans|Zondervan|Baker|Fortress|Brill|Mohr/i.test(candidate)) break;
+          if (isNameLike(candidate)) continue;                     // skip "Motyer and Derek Tidball"
+          set('sourceTitle', candidate);
+          break;
         }
       }
     }
@@ -2410,9 +2655,10 @@ class ExportModal extends Modal {
         ['edition',   card.edition],
         ['volume',    card.volume],
         ['issue',     card.issue],
-        ['pages',     card.pages],
-        ['url',       card.url],
-        ['accessed',  card.accessed],
+        ['pages',      card.pages],
+        ['citedPages', card.citedPages],
+        ['url',        card.url],
+        ['accessed',   card.accessed],
       ].filter(([, v]) => v && v.trim()).map(([k, v]) => `${k}: "${v.trim()}"`).join('\n');
       const fm = [
         '---',
@@ -2583,19 +2829,27 @@ class BibliographyModal extends Modal {
     const acc = card.accessed    ? card.accessed  : '';
     const urlAcc = url ? url + (acc ? '. Accessed ' + acc : '') : '';
     const pubLine = [pl, pub].filter(Boolean).join(': ');
+    // Series-vs-journal disambiguation: a journal article carries a volume or
+    // issue; a book series (NICOT, Hermeneia, WBC…) does not. Empty sourceTitle
+    // = plain book. (Trade-off: a journal cite missing vol/issue falls back to
+    // book form — acceptable, since vol/issue is near-universal on real journals.)
+    const isJournal = !!(card.volume || card.issue);
 
     const clean = s => s.replace(/\.{2,}/g, '.').replace(/,\s*\./, '.').trim();
 
     if (style === 'chicago' || style === 'turabian') {
-      if (st) return clean(a + '. "' + t + '." *' + st + '* ' + vol + yr + pg + (urlAcc ? '. ' + urlAcc : '') + '.');
+      if (st && isJournal) return clean(a + '. "' + t + '." *' + st + '* ' + vol + yr + pg + (urlAcc ? '. ' + urlAcc : '') + '.');
+      if (st)              return clean(a + '. *' + t + '*. ' + st + '. ' + ed + pubLine + (pubLine ? ', ' : '') + yr + (urlAcc ? '. ' + urlAcc : '') + '.');
       return clean(a + '. *' + t + '*. ' + ed + pubLine + (pubLine ? ', ' : '') + yr + (urlAcc ? '. ' + urlAcc : '') + '.');
     }
     if (style === 'sbl') {
-      if (st) return clean(a + '. "' + t + '." *' + st + '* ' + vol + '(' + yr + ')' + pg + (urlAcc ? '. ' + urlAcc : '') + '.');
+      if (st && isJournal) return clean(a + '. "' + t + '." *' + st + '* ' + vol + '(' + yr + ')' + pg + (urlAcc ? '. ' + urlAcc : '') + '.');
+      if (st)              return clean(a + '. *' + t + '*. ' + st + '. ' + ed + pubLine + (pubLine ? ', ' : '') + yr + (urlAcc ? '. ' + urlAcc : '') + '.');
       return clean(a + '. *' + t + '*. ' + ed + pubLine + (pubLine ? ', ' : '') + yr + (urlAcc ? '. ' + urlAcc : '') + '.');
     }
     if (style === 'mla') {
-      if (st) return clean(a + '. "' + t + '." *' + st + '*, ' + vol + yr + ', pp. ' + (card.pages || 'n.p.') + (urlAcc ? '. ' + urlAcc : '') + '.');
+      if (st && isJournal) return clean(a + '. "' + t + '." *' + st + '*, ' + vol + yr + ', pp. ' + (card.pages || 'n.p.') + (urlAcc ? '. ' + urlAcc : '') + '.');
+      if (st)              return clean(a + '. *' + t + '*. ' + st + ', ' + ed + pub + (pub && yr ? ', ' : '') + yr + (urlAcc ? '. ' + urlAcc : '') + '.');
       return clean(a + '. *' + t + '*. ' + ed + pub + (pub && yr ? ', ' : '') + yr + (urlAcc ? '. ' + urlAcc : '') + '.');
     }
     if (style === 'apa') {
@@ -2603,10 +2857,11 @@ class BibliographyModal extends Modal {
       const rest = a.includes(',') ? a.split(',').slice(1).join(',').trim() : '';
       const initials = rest ? rest.split(' ').filter(Boolean).map(n => n[0] + '.').join(' ') : '';
       const auth = initials ? lastName + ', ' + initials : lastName;
-      if (st) {
+      if (st && isJournal) {
         const volIss = card.volume ? '*' + card.volume + '*' + (card.issue ? '(' + card.issue + ')' : '') : '';
         return clean(auth + ' (' + yr + '). ' + t + '. *' + st + '*, ' + volIss + pg + (urlAcc ? ' ' + urlAcc : '') + '.');
       }
+      if (st) return clean(auth + ' (' + yr + '). *' + t + '* (' + st + '). ' + pub + (urlAcc ? ' ' + urlAcc : '') + '.');
       return clean(auth + ' (' + yr + '). *' + t + '*. ' + pub + (urlAcc ? ' ' + urlAcc : '') + '.');
     }
     return clean(a + '. *' + t + '*. ' + yr + (urlAcc ? '. ' + urlAcc : '') + '.');
@@ -2654,7 +2909,12 @@ class BibliographyModal extends Modal {
       this.close();
       new Notice('Bibliography saved: ' + filename);
       const file = this.plugin.app.vault.getAbstractFileByPath(filename);
-      if (file) this.plugin.app.workspace.getLeaf('tab').openFile(file);
+      if (file) {
+        const leaf = this.plugin.app.workspace.getLeaf('tab');
+        await leaf.openFile(file);
+        // Drop the cursor into the opened file (defeats the post-close focus race)
+        this.plugin.app.workspace.setActiveLeaf(leaf, { focus: true });
+      }
     } catch(e) {
       new Notice('Error saving bibliography: ' + e.message);
     }
@@ -2859,6 +3119,494 @@ class CompareModal extends Modal {
 }
 
 // ═════════════════════════════════════════════
+//  OUTLINE EXPORT HELPER
+// ═════════════════════════════════════════════
+function generateOutlineMarkdown(cards, projectName, citStyle) {
+  const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+
+  const lines = [];
+  lines.push('---');
+  lines.push(`title: "${projectName} — Outline"`);
+  lines.push(`date: "${dateStr}"`);
+  lines.push('---');
+  lines.push('');
+
+  // One footnote per card (no deduplication) — keeps draft markers clean
+  // ([1], [2], [3]...) and leaves consolidation (ibid., op. cit.) to the
+  // writer during real editing.
+  const footnoteList = []; // ordered list of [number, formattedEntry]
+  let fnCounter = 1;
+
+  const formatFootnoteEntry = (card, style) => {
+    const a   = (card.author || 'Unknown Author').replace(/\.{2,}/g, '.');
+    const t   = (card.title  || card.cardTitle || 'Untitled').replace(/^[\u201c\u201d"]+|[\u201c\u201d"]+$/g, '').trim();
+    const st  = card.sourceTitle || '';
+    const pub = card.publisher   || '';
+    const pl  = card.place       || '';
+    const yr  = card.year        || 'n.d.';
+    const vol = card.volume      ? 'vol. ' + card.volume + (card.issue ? ', no. ' + card.issue + '. ' : '. ') : '';
+    const loc   = card.citedPages || card.pages || '';   // footnote locator: cited page preferred, full range fallback (Option A)
+    const pgCol = loc ? ': ' + loc : '';                 // journal form → ": 52"
+    const pgBk  = loc ? ', ' + loc : '';                 // book form    → ", 52" after year
+    const url = card.url         ? card.url : '';
+    const acc = card.accessed    ? card.accessed : '';
+    const urlAcc  = url ? url + (acc ? '. Accessed ' + acc : '') : '';
+    const pubLine = [pl, pub].filter(Boolean).join(': ');
+    const isJournal = !!(card.volume || card.issue);   // series (book) vs. journal — see formatEntry note
+    const clean   = s => s.replace(/\.{2,}/g, '.').replace(/,\s*\./, '.').trim();
+
+    if (style === 'chicago' || style === 'turabian') {
+      if (st && isJournal) return clean(a + '. "' + t + '." *' + st + '* ' + vol + yr + pgCol + (urlAcc ? '. ' + urlAcc : '') + '.');
+      if (st)              return clean(a + '. *' + t + '*. ' + st + '. ' + pubLine + (pubLine ? ', ' : '') + yr + pgBk + (urlAcc ? '. ' + urlAcc : '') + '.');
+      return clean(a + '. *' + t + '*. ' + pubLine + (pubLine ? ', ' : '') + yr + pgBk + (urlAcc ? '. ' + urlAcc : '') + '.');
+    }
+    if (style === 'sbl') {
+      if (st && isJournal) return clean(a + '. "' + t + '." *' + st + '* ' + vol + '(' + yr + ')' + pgCol + (urlAcc ? '. ' + urlAcc : '') + '.');
+      if (st)              return clean(a + '. *' + t + '*. ' + st + '. ' + pubLine + (pubLine ? ', ' : '') + yr + pgBk + (urlAcc ? '. ' + urlAcc : '') + '.');
+      return clean(a + '. *' + t + '*. ' + pubLine + (pubLine ? ', ' : '') + yr + pgBk + (urlAcc ? '. ' + urlAcc : '') + '.');
+    }
+    if (style === 'mla') {
+      if (st && isJournal) return clean(a + '. "' + t + '." *' + st + '*, ' + vol + yr + ', pp. ' + (loc || 'n.p.') + (urlAcc ? '. ' + urlAcc : '') + '.');
+      if (st)              return clean(a + '. *' + t + '*. ' + st + ', ' + pub + (pub && yr ? ', ' : '') + yr + pgBk + (urlAcc ? '. ' + urlAcc : '') + '.');
+      return clean(a + '. *' + t + '*. ' + pub + (pub && yr ? ', ' : '') + yr + pgBk + (urlAcc ? '. ' + urlAcc : '') + '.');
+    }
+    if (style === 'apa') {
+      const lastName = a.split(',')[0];
+      const rest = a.includes(',') ? a.split(',').slice(1).join(',').trim() : '';
+      const initials = rest ? rest.split(' ').filter(Boolean).map(n => n[0] + '.').join(' ') : '';
+      const auth = initials ? lastName + ', ' + initials : lastName;
+      if (st && isJournal) {
+        const volIss = card.volume ? '*' + card.volume + '*' + (card.issue ? '(' + card.issue + ')' : '') : '';
+        return clean(auth + ' (' + yr + '). ' + t + '. *' + st + '*, ' + volIss + pgCol + (urlAcc ? ' ' + urlAcc : '') + '.');
+      }
+      if (st) return clean(auth + ' (' + yr + '). *' + t + '* (' + st + '). ' + pub + pgBk + (urlAcc ? ' ' + urlAcc : '') + '.');
+      return clean(auth + ' (' + yr + '). *' + t + '*. ' + pub + pgBk + (urlAcc ? ' ' + urlAcc : '') + '.');
+    }
+    return clean(a + '. *' + t + '*. ' + yr + pgBk + (urlAcc ? '. ' + urlAcc : '') + '.');
+  };
+
+  // Build body — assign each card its own footnote number as we go
+  for (const card of cards) {
+    const hasCitation = card.author || card.title;
+    let fnNum = null;
+    if (hasCitation) {
+      fnNum = fnCounter++;
+      footnoteList.push([fnNum, formatFootnoteEntry(card, citStyle || 'chicago')]);
+    }
+
+    // Strip any existing [^N] markers from the card body so we never double-up
+    const bodyText = (card.front || '').trim().replace(/\s*\[\^[^\]]+\]/g, '');
+
+    if (card.cardTitle) {
+      lines.push(`**${card.cardTitle}**`);
+      lines.push('');
+    }
+    lines.push(`${bodyText}${fnNum ? ' [^' + fnNum + ']' : ''}`);
+    lines.push('');
+  }
+
+  // Footnote definitions — no leading --- (Obsidian adds its own separator in reading mode)
+  if (footnoteList.length) {
+    lines.push('');
+    for (const [num, entry] of footnoteList) {
+      lines.push(`[^${num}]: ${entry}`);
+    }
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
+// ═════════════════════════════════════════════
+//  OUTLINE SELECTION MODAL
+//  User picks cards from a project in tab order,
+//  then opens the Outline Sandbox tab.
+// ═════════════════════════════════════════════
+class OutlineSelectionModal extends Modal {
+  constructor(plugin, data, projectId, projectName) {
+    super(plugin.app);
+    this.plugin      = plugin;
+    this.data        = data;
+    this.projectId   = projectId;
+    this.projectName = projectName;
+    this.selectedIds = new Set();
+    this.citStyle    = 'chicago';
+  }
+
+  onOpen() {
+    this.modalEl.addClass('ic-modal-narrow');
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.createEl('h2', { text: '📄 Export as Outline' });
+    contentEl.createEl('p', {
+      text: 'Select cards to include. They will appear in the sandbox in their current tab order.',
+      attr: { style: 'color:var(--text-muted);font-size:0.83rem;margin:0 0 14px' },
+    });
+
+    // Citation style selector
+    const sf = contentEl.createDiv('ic-field');
+    sf.createEl('label', { text: 'Citation Style' });
+    const sSel = sf.createEl('select');
+    const styles = [
+      ['chicago',  'Chicago (Notes-Bibliography)'],
+      ['sbl',      'SBL (Society of Biblical Literature)'],
+      ['mla',      'MLA (9th edition)'],
+      ['apa',      'APA (7th edition)'],
+      ['turabian', 'Turabian'],
+    ];
+    for (const [k, v] of styles) sSel.createEl('option', { text: v, value: k });
+    sSel.onchange = () => { this.citStyle = sSel.value; };
+
+    // Card pick list — ordered by position in data.cards (= tab arrangement)
+    const projectCards = this.data.cards.filter(c => c.projectId === this.projectId);
+    const pickWrap = contentEl.createDiv('ic-export-pick-wrap');
+    pickWrap.style.marginTop = '12px';
+
+    if (!projectCards.length) {
+      pickWrap.createEl('p', { text: 'No cards in this project.', cls: 'ic-muted' });
+    } else {
+      const ctrl = pickWrap.createDiv({ attr: { style: 'display:flex;gap:12px;margin-bottom:6px;font-size:0.8rem;' } });
+      const selAll  = ctrl.createEl('a', { text: 'Select all',  href: '#' });
+      const selNone = ctrl.createEl('a', { text: 'Select none', href: '#' });
+      const checkboxes = [];
+
+      const list = pickWrap.createDiv('ic-export-pick-list');
+
+      // Group by category for visual clarity, but ordering for export is data.cards array order
+      const cats = this.data.categories.filter(c => c.projectId === this.projectId && !c.parentId);
+      const uncategorized = projectCards.filter(c => !c.categoryId);
+
+      const renderGroup = (label, cards) => {
+        if (!cards.length) return;
+        list.createDiv({ cls: 'ic-export-pick-header', text: label });
+        for (const card of cards) {
+          const row = list.createDiv('ic-export-pick-row');
+          const cb  = row.createEl('input', { type: 'checkbox' });
+          cb.checked = false; // default unchecked — user makes deliberate selections
+          cb.onchange = () => cb.checked ? this.selectedIds.add(card.id) : this.selectedIds.delete(card.id);
+          const lbl = row.createEl('label');
+          lbl.setText(card.cardTitle || card.front.slice(0, 60) || '(untitled)');
+          row.onclick = e => { if (e.target !== cb) { cb.checked = !cb.checked; cb.dispatchEvent(new Event('change')); } };
+          checkboxes.push([cb, card.id]);
+        }
+      };
+
+      cats.forEach(cat => renderGroup(cat.name, projectCards.filter(c => c.categoryId === cat.id)));
+      renderGroup('Uncategorized', uncategorized);
+
+      selAll.onclick  = e => { e.preventDefault(); checkboxes.forEach(([cb, id]) => { cb.checked = true;  this.selectedIds.add(id); }); };
+      selNone.onclick = e => { e.preventDefault(); checkboxes.forEach(([cb, id]) => { cb.checked = false; this.selectedIds.delete(id); }); };
+    }
+
+    const footer = contentEl.createDiv('ic-modal-footer');
+    footer.style.padding = '16px 0 0';
+    footer.createEl('button', { text: 'Cancel', cls: 'ic-btn' }).onclick = () => this.close();
+    footer.createEl('button', { text: 'Open in Sandbox →', cls: 'ic-btn primary' }).onclick = () => this.openSandbox();
+  }
+
+  async openSandbox() {
+    if (!this.selectedIds.size) {
+      new Notice('Please select at least one card.');
+      return;
+    }
+
+    // Preserve data.cards order — filter to selected, maintaining array order
+    const orderedCards = this.data.cards
+      .filter(c => this.selectedIds.has(c.id))
+      .map(c => ({ ...c })); // shallow copy — sandbox copies, originals untouched
+
+    this.close();
+
+    // Open or reuse sandbox leaf
+    const existing = this.plugin.app.workspace.getLeavesOfType(VIEW_TYPE_SANDBOX);
+    let leaf;
+    if (existing.length) {
+      leaf = existing[0];
+    } else {
+      leaf = this.plugin.app.workspace.getLeaf('tab');
+    }
+    await leaf.setViewState({ type: VIEW_TYPE_SANDBOX, active: true });
+    this.plugin.app.workspace.revealLeaf(leaf);
+
+    // Pass cards + metadata to the sandbox view
+    const view = leaf.view;
+    if (view && view.loadSandbox) {
+      view.loadSandbox(orderedCards, this.projectName, this.citStyle);
+    }
+  }
+
+  onClose() { this.contentEl.empty(); }
+}
+
+// ═════════════════════════════════════════════
+//  OUTLINE SANDBOX VIEW
+// ═════════════════════════════════════════════
+class OutlineSandboxView extends ItemView {
+  constructor(leaf, plugin) {
+    super(leaf);
+    this.plugin      = plugin;
+    this.cards       = [];
+    this.projectName = '';
+    this.citStyle    = 'chicago';
+  }
+
+  getViewType()    { return VIEW_TYPE_SANDBOX; }
+  getDisplayText() { return '📄 Outline Sandbox'; }
+  getIcon()        { return 'file-text'; }
+
+  async onOpen()  { this.renderEmpty(); }
+  async onClose() {}
+
+  loadSandbox(cards, projectName, citStyle) {
+    this.cards       = cards;
+    this.projectName = projectName;
+    this.citStyle    = citStyle || 'chicago';
+    this.render();
+  }
+
+  renderEmpty() {
+    const root = this.containerEl.children[1] ?? this.containerEl;
+    root.empty();
+    root.className = 'ic-view ic-sandbox-view';
+    const empty = root.createDiv('ic-sandbox-empty');
+    empty.createDiv({ cls: 'ic-sandbox-empty-icon', text: '📄' });
+    empty.createEl('p', { text: 'No outline loaded. Use "Export as Outline" from a project to begin.' });
+  }
+
+  render() {
+    const root = this.containerEl.children[1] ?? this.containerEl;
+    root.empty();
+    root.className = 'ic-view ic-sandbox-view';
+
+    // ── Header banner ──
+    const header = root.createDiv('ic-sandbox-header');
+    const headerLeft = header.createDiv('ic-sandbox-header-left');
+    headerLeft.createDiv({ cls: 'ic-sandbox-title', text: `${this.projectName} — Outline Export` });
+    headerLeft.createDiv({ cls: 'ic-sandbox-subtitle', text: 'Session only — arrangement will not be saved on close' });
+
+    const headerActions = header.createDiv('ic-sandbox-header-actions');
+    headerActions.createEl('button', { text: 'Cancel', cls: 'ic-btn' })
+      .onclick = async () => {
+        if (await icConfirm(this.app, {
+          title: 'Close the Outline Sandbox?',
+          message: 'Your card arrangement and the sandbox copies will be discarded.',
+          confirmText: 'Close', danger: true,
+        })) {
+          this.cards = [];
+          this.projectName = '';
+          const leaf = this.leaf || this.app.workspace.getLeavesOfType(VIEW_TYPE_SANDBOX)[0];
+          if (leaf) leaf.detach();
+        }
+      };
+    headerActions.createEl('button', { text: '↑ Export Outline', cls: 'ic-btn primary' })
+      .onclick = () => this.doExport();
+
+    // ── Card grid ──
+    const grid = root.createDiv('ic-sandbox-grid');
+    if (!this.cards.length) {
+      grid.createDiv({ cls: 'ic-sandbox-grid-empty', text: 'No cards. Close this tab and select cards from your project.' });
+    } else {
+      let dragSrcIdx = null;
+
+      for (let i = 0; i < this.cards.length; i++) {
+        this.renderSandboxCard(grid, i, dragSrcIdx, () => dragSrcIdx, idx => { dragSrcIdx = idx; });
+      }
+    }
+  }
+
+  renderSandboxCard(grid, index, _dragSrcIdx, getDragSrc, setDragSrc) {
+    const card = this.cards[index];
+    const size = this._cardSize();
+    const col  = CARD_COLORS[card.color || 'default'] || CARD_COLORS['default'];
+
+    const el = grid.createDiv('ic-card ic-sandbox-card');
+    el.style.width       = size.w + 'px';
+    el.style.height      = size.h + 'px';
+    el.style.background  = col.bg;
+    el.style.borderColor = col.border;
+
+    // Always-visible drag handle
+    const dragHandle = el.createDiv('ic-sandbox-drag-handle');
+    dragHandle.innerHTML = '⠿';
+    dragHandle.title = 'Drag to reorder';
+
+    // ── Drag logic ──
+    el.setAttribute('draggable', 'true');
+    el.ondragstart = e => {
+      setDragSrc(index);
+      e.dataTransfer.setData('sandbox-idx', String(index));
+      e.dataTransfer.effectAllowed = 'move';
+      setTimeout(() => el.addClass('ic-card-dragging'), 0);
+    };
+    el.ondragend   = () => el.removeClass('ic-card-dragging');
+    el.ondragover  = e => {
+      e.preventDefault();
+      if (getDragSrc() !== null && getDragSrc() !== index) el.addClass('ic-card-drop-target');
+    };
+    el.ondragleave = () => el.removeClass('ic-card-drop-target');
+    el.ondrop = e => {
+      e.preventDefault(); e.stopPropagation();
+      el.removeClass('ic-card-drop-target');
+      const srcIdx = parseInt(e.dataTransfer.getData('sandbox-idx'));
+      if (isNaN(srcIdx) || srcIdx === index) return;
+      const targetId = this.cards[index].id;
+      const [moved] = this.cards.splice(srcIdx, 1);
+      const newTargetIdx = this.cards.findIndex(c => c.id === targetId);
+      // Insert after the target when dragging forward, before when dragging backward
+      const insertAt = srcIdx < index ? newTargetIdx + 1 : newTargetIdx;
+      this.cards.splice(insertAt, 0, moved);
+      setDragSrc(null);
+      this.render();
+    };
+
+    // ── Card content (read-only) ──
+    const front = el.createDiv('ic-card-front');
+
+    if (card.cardTitle)
+      front.createDiv({ cls: 'ic-card-title-badge', text: card.cardTitle.toUpperCase() });
+
+    const contentEl = front.createDiv({ cls: 'ic-card-front-text' });
+    MarkdownRenderer.render(this.plugin.app, card.front || '*(empty)*', contentEl, '', this.plugin);
+    front.createDiv({ cls: 'ic-card-text-fade' });
+
+    if (card.tags && card.tags.length) {
+      const tagsRow = front.createDiv('ic-card-tags-row');
+      for (const tag of card.tags)
+        tagsRow.createSpan({ cls: 'ic-card-tag', text: '#' + tag });
+    }
+
+    // ── Footer — citation only, no action buttons ──
+    const cardFooter = el.createDiv('ic-card-footer');
+    if (card.author || card.year) {
+      const citeStr = [
+        card.author ? card.author.split(',')[0] : null,
+        card.year   ? card.year : null,
+        (card.citedPages || card.pages) ? 'p. ' + (card.citedPages || card.pages) : null,
+      ].filter(Boolean).join(', ');
+      cardFooter.createDiv({ cls: 'ic-card-citation', text: citeStr });
+    }
+  }
+
+  _cardSize() {
+    const s = this.plugin.settings;
+    if (s.cardSize === 'custom') return { w: s.customCardW || 260, h: s.customCardH || 190 };
+    return CARD_SIZES[s.cardSize] || CARD_SIZES['3x5'];
+  }
+
+  async doExport() {
+    if (!this.cards.length) { new Notice('No cards in sandbox.'); return; }
+
+    const content = generateOutlineMarkdown(this.cards, this.projectName, this.citStyle);
+
+    // Reuse folder picker pattern from ExportModal
+    let folderPath = 'Index Cards';
+    const pickerDone = new Promise(resolve => {
+      new FolderPickerModal(this.app, chosen => {
+        folderPath = chosen || 'Index Cards';
+        resolve();
+      }).open();
+    });
+    await pickerDone;
+
+    const folder = folderPath.replace(/\/$/, '') || 'Index Cards';
+    if (!this.app.vault.getAbstractFileByPath(folder))
+      await this.app.vault.createFolder(folder);
+
+    const baseName = slugify(this.projectName + '-outline', 'dashes') + '-' + Date.now().toString(36);
+    const filename = folder + '/' + baseName + '.md';
+
+    try {
+      await this.app.vault.create(filename, content);
+
+      // Open the exported file in a new tab
+      const file = this.app.vault.getAbstractFileByPath(filename);
+      const fileLeaf = file ? this.app.workspace.getLeaf('tab') : null;
+      if (fileLeaf) await fileLeaf.openFile(file);
+
+      // Post-export confirmation
+      const keepSandbox = await icConfirm(this.app, {
+        title: '✓ Outline exported',
+        message: `${filename}\n\nKeep the sandbox open for further arrangement?`,
+        confirmText: 'Keep open',
+        cancelText: 'Close sandbox',
+        danger: false,
+      });
+      if (!keepSandbox) {
+        this.cards = [];
+        this.projectName = '';
+        const leaf = this.app.workspace.getLeavesOfType(VIEW_TYPE_SANDBOX)[0];
+        if (leaf) leaf.detach();
+      }
+
+      // Focus the exported file LAST — after the modal closed and the sandbox
+      // was (optionally) detached — so the cursor actually lands in the editor
+      // instead of being stranded on a removed element.
+      if (fileLeaf) this.app.workspace.setActiveLeaf(fileLeaf, { focus: true });
+    } catch (e) {
+      new Notice('Error exporting outline: ' + e.message);
+    }
+  }
+}
+
+// ═════════════════════════════════════════════
+//  CONFIRM MODAL — styled replacement for window.confirm()
+//  Usage:  if (await icConfirm(this.app, { title, message, confirmText, cancelText, danger })) { ... }
+// ═════════════════════════════════════════════
+class ConfirmModal extends Modal {
+  constructor(app, opts, resolve) {
+    super(app);
+    this.opts = opts || {};
+    this.resolve = resolve;
+    this.decided = false;
+  }
+  onOpen() {
+    const { contentEl, modalEl } = this;
+    modalEl.addClass('ic-confirm-modal');
+    contentEl.empty();
+    contentEl.addClass('ic-confirm-content');
+
+    if (this.opts.title)
+      contentEl.createDiv({ cls: 'ic-confirm-title', text: this.opts.title });
+
+    const msgWrap = contentEl.createDiv('ic-confirm-message');
+    String(this.opts.message || '').split('\n').forEach(line => {
+      const txt = line.trim();
+      if (txt) msgWrap.createEl('p', { text: txt });
+      else msgWrap.createDiv({ cls: 'ic-confirm-spacer' });
+    });
+
+    const actions = contentEl.createDiv('ic-confirm-actions');
+    const cancelBtn = actions.createEl('button', { text: this.opts.cancelText || 'Cancel', cls: 'ic-btn' });
+    cancelBtn.onclick = () => this.decide(false);
+    const confirmBtn = actions.createEl('button', {
+      text: this.opts.confirmText || 'Confirm',
+      cls: 'ic-btn ' + (this.opts.danger ? 'danger' : 'primary'),
+    });
+    confirmBtn.onclick = () => this.decide(true);
+
+    // Focus the safe choice for destructive prompts, the action for plain choices.
+    // A focused button activates on Enter natively, so this also makes Enter do
+    // the right thing: Enter cancels a delete, Enter confirms a plain choice.
+    (this.opts.danger ? cancelBtn : confirmBtn).focus();
+  }
+  decide(val) {
+    if (this.decided) return;
+    this.decided = true;
+    this.close();
+    this.resolve(val);
+  }
+  onClose() {
+    this.contentEl.empty();
+    // Esc / click-outside without a button press = cancel
+    if (!this.decided) { this.decided = true; this.resolve(false); }
+  }
+}
+
+function icConfirm(app, opts) {
+  return new Promise(resolve => new ConfirmModal(app, opts, resolve).open());
+}
+
+// ═════════════════════════════════════════════
 //  PROJECT MODALS
 // ═════════════════════════════════════════════
 class NewProjectModal extends Modal {
@@ -2997,7 +3745,8 @@ class RenameSubcategoryModal extends Modal {
 class IndexCardsPlugin extends Plugin {
   async onload() {
     await this.loadSettings();
-    this.registerView(VIEW_TYPE, leaf => new IndexCardsView(leaf, this));
+    this.registerView(VIEW_TYPE,         leaf => new IndexCardsView(leaf, this));
+    this.registerView(VIEW_TYPE_SANDBOX, leaf => new OutlineSandboxView(leaf, this));
     this.addRibbonIcon('library', 'Index Cards', () => this.openView());
     this.addCommand({ id: 'open-index-cards', name: 'Open Index Cards', callback: () => this.openView() });
     this.addSettingTab(new IndexCardsSettingTab(this.app, this));
@@ -3019,3 +3768,5 @@ class IndexCardsPlugin extends Plugin {
 }
 
 module.exports = IndexCardsPlugin;
+
+/* nosourcemap */
