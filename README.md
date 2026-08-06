@@ -168,9 +168,13 @@ Press `F` or click the search icon to open the search modal. Search looks across
 
 ## Moving & Copying Cards
 
-**Moving a card:** Right-click a card and select **Move**. A modal lists all available categories and subcategories across all projects. Non-clickable uppercase headers show category names; indented buttons beneath them are subcategories. Click a destination to move the card there.
+Right-click a card to see two separate move options, depending on where the card needs to go.
 
-Moving always clears the card's subcategory assignment, so the card lands cleanly in its new home regardless of where it came from.
+**Move to Category:** Moves the card to a different category or subcategory **within the current project**. A modal lists the project's categories as buttons — click one to move the card there, or click **+ Create new category** to create a destination on the spot without leaving the dialog. This always clears the card's subcategory assignment, so the card lands cleanly in the new category regardless of where it came from.
+
+**Move to Project:** Moves the card to a **different project**. A modal lets you pick the destination project and, optionally, a category within it from a dropdown.
+
+> ⚠️ Moving to a different project does not clear a previously-set subcategory. If the card had a subcategory assigned in its old project, that assignment can persist and point at a subcategory that no longer applies. If you're moving a card across projects, check its category/subcategory in the editor afterward.
 
 **Duplicating to another location:** Duplicate the card first (right-click → Duplicate), then move the copy.
 
@@ -215,13 +219,14 @@ When enabled, each card gains a **📚 Source / Citation** tab in the editor wit
 - Journal / Series
 - Publisher, Place, Year
 - Edition, Volume, Issue, Pages
+- **Cited Pages** — the specific page(s) or locator being cited *on this card*, separate from the source's overall Pages range. This is what drives the short citation shown in the card footer and in footnotes — if a source spans many cards, each one records its own Cited Pages.
 - URL, Accessed (for web sources)
 
 A short citation (author + year) appears in the card footer when source information is present.
 
 ### Citation Parser
 
-Inside the Source tab, a paste box accepts citation text copied from any reference manager, browser extension, or bibliography. Copy a citation from Zotero (*Edit → Copy as → Bibliography Entry*), your library database, Google Scholar, Logos, or anywhere else — paste it in and click **Parse**. The plugin reads the text and fills in the author, title, journal/series, publisher, place, year, volume, issue, and pages fields automatically.
+Inside the Source tab, a paste box accepts citation text copied from any reference manager, browser extension, or bibliography. Copy a citation from Zotero (*Edit → Copy as → Bibliography Entry*), your library database, Google Scholar, Logos, or anywhere else — paste it in and click **Parse**. The plugin reads the text and fills in the author, title, journal/series, publisher, place, year, volume, issue, and pages fields automatically. Where the pasted text includes a specific locator (e.g. a footnote citing one page of a book), the parser also fills Cited Pages.
 
 You can also fill in the citation fields manually without using the parser at all.
 
