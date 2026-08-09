@@ -31,6 +31,7 @@ If you're a researcher, student, or academic writer, **Academic Mode** adds cita
 - [Recently Edited](#recently-edited)
 - [Compare Cards](#compare-cards)
 - [Academic Mode](#academic-mode)
+  - [New Card from This Source](#new-card-from-this-source)
 - [Settings](#settings)
 - [Keyboard Shortcuts](#keyboard-shortcuts)
 - [Data Storage](#data-storage)
@@ -39,7 +40,7 @@ If you're a researcher, student, or academic writer, **Academic Mode** adds cita
 
 ## Installation
 
-Search for **Index Cards** in Obsidian's community plugin browser (*Settings → Community plugins → Browse*), install, and enable it. The plugin adds an **Index Cards** icon to your left ribbon.
+Search for **Index Cards** in Obsidian's community plugin browser (*Settings > Community plugins > Browse*), install, and enable it. The plugin adds an **Index Cards** icon to your left ribbon.
 
 ---
 
@@ -49,7 +50,7 @@ Click the Index Cards ribbon icon to open the plugin. It always opens as a full-
 
 On first launch you'll see the **Projects** dashboard — an empty workspace. Click **+ New Project** to create your first project, give it a name, and click into it. From there, create a category, and then start adding cards.
 
-The typical flow is: **Project → Category → Cards**. You can also add subcategories under any category if you need a second level of organization.
+The typical flow is: **Project > Category > Cards**. You can also add subcategories under any category if you need a second level of organization.
 
 ---
 
@@ -99,8 +100,8 @@ Inside a category or subcategory, click **+ New Card**. The card editor opens as
 
 The editor has two tabs:
 
-- **📄 Note** — the main writing area, with a title field and a free-text note field.
-- **📚 Source / Citation** — citation fields for Academic Mode (hidden unless Academic Mode is enabled in Settings).
+- **Note** — the main writing area, with a title field and a free-text note field.
+- **Source / Citation** — citation fields for Academic Mode (hidden unless Academic Mode is enabled in Settings).
 
 **Toolbar (Note tab):** Bold (`B`), Italic (`I`), Strikethrough (`S`), and Inline Code (`` ` ``) buttons wrap selected text in the appropriate Markdown syntax. Select text first, then click a button.
 
@@ -142,7 +143,7 @@ Drag and drop cards within a category to rearrange them.
 
 ## Navigating Your Cards
 
-**Breadcrumb navigation:** A breadcrumb at the top of every view shows your current location (e.g. *Project → Category → Subcategory*). Click any segment to jump back to that level.
+**Breadcrumb navigation:** A breadcrumb at the top of every view shows your current location (e.g. *Project > Category > Subcategory*). Click any segment to jump back to that level.
 
 **Project jump dropdown:** A dropdown in the header lets you switch directly to any project without going back to the dashboard.
 
@@ -170,13 +171,13 @@ Press `F` or click the search icon to open the search modal. Search looks across
 
 Right-click a card to see two separate move options, depending on where the card needs to go.
 
-**Move to Category:** Moves the card to a different category or subcategory **within the current project**. A modal lists the project's categories as buttons — click one to move the card there, or click **+ Create new category** to create a destination on the spot without leaving the dialog. This always clears the card's subcategory assignment, so the card lands cleanly in the new category regardless of where it came from.
+**Move to Category:** Moves the card within the current project. A modal lists the project's categories as buttons, with each category's subcategories indented beneath it. Click a category to move the card there and clear any subcategory; click an indented subcategory to move it into that subcategory instead. **+ Create new category** creates a destination on the spot without leaving the dialog.
 
-**Move to Project:** Moves the card to a **different project**. A modal lets you pick the destination project and, optionally, a category within it from a dropdown.
+The card's current location is dimmed. A card sitting in a subcategory shows that subcategory dimmed, not its parent — moving it up to the parent category is a real move and stays available.
 
-> ⚠️ Moving to a different project does not clear a previously-set subcategory. If the card had a subcategory assigned in its old project, that assignment can persist and point at a subcategory that no longer applies. If you're moving a card across projects, check its category/subcategory in the editor afterward.
+**Move to Project:** Moves the card to a **different project**. A modal lets you pick the destination project and, optionally, a category within it from a dropdown. Any subcategory is cleared, since subcategories belong to the project they were created in.
 
-**Duplicating to another location:** Duplicate the card first (right-click → Duplicate), then move the copy.
+**Duplicating to another location:** Duplicate the card first (right-click ? Duplicate), then move the copy.
 
 ---
 
@@ -210,9 +211,9 @@ Select **Compare** from the toolbar to open two cards side by side in a split vi
 
 ## Academic Mode
 
-Academic Mode is off by default. Enable it in **Settings → Index Cards → Academic Mode**.
+Academic Mode is off by default. Enable it in **Settings > Index Cards > Academic Mode**.
 
-When enabled, each card gains a **📚 Source / Citation** tab in the editor with fields for:
+When enabled, each card gains a **Source / Citation** tab in the editor with fields for:
 
 - Author
 - Title
@@ -226,7 +227,7 @@ A short citation (author + year) appears in the card footer when source informat
 
 ### Citation Parser
 
-Inside the Source tab, a paste box accepts citation text copied from any reference manager, browser extension, or bibliography. Copy a citation from Zotero (*Edit → Copy as → Bibliography Entry*), your library database, Google Scholar, Logos, or anywhere else — paste it in and click **Parse**. The plugin reads the text and fills in the author, title, journal/series, publisher, place, year, volume, issue, and pages fields automatically. Where the pasted text includes a specific locator (e.g. a footnote citing one page of a book), the parser also fills Cited Pages.
+Inside the Source tab, a paste box accepts citation text copied from any reference manager, browser extension, or bibliography. Copy a citation from Zotero (*Edit > Copy as > Bibliography Entry*), your library database, Google Scholar, Logos, or anywhere else — paste it in and click **Parse**. The plugin reads the text and fills in the author, title, journal/series, publisher, place, year, volume, issue, and pages fields automatically. Where the pasted text includes a specific locator (e.g. a footnote citing one page of a book), the parser also fills Cited Pages.
 
 You can also fill in the citation fields manually without using the parser at all.
 
@@ -242,6 +243,16 @@ After parsing, review the filled fields and make any corrections before saving.
 
 **Clear All:** Clears the paste area and all filled citation fields at once. Use this when you want to start fresh with a new source.
 
+### New Card from This Source
+
+When you're taking several cards from the same book or article, you don't need to re-enter or re-parse the citation each time. Right-click a card that already has source information and choose **New Card from This Source**. A new card opens in the same category and subcategory with the citation already filled in — everything except Cited Pages.
+
+Cited Pages stays blank on purpose. It's the page *this particular card* refers to, so copying it would stamp the same page number onto every card from the source. Fill it in as you go.
+
+The body, title, tags, and color are not carried over. The result is a new card that shares a source, not a duplicate of an existing one.
+
+The menu item only appears when Academic Mode is on and the card you right-clicked actually has citation information in it.
+
 ### Bibliography Generator
 
 Click **Bibliography** in the toolbar (visible only in Academic Mode) to open the bibliography modal. Choose a citation style from the dropdown and click **Generate**. The plugin compiles citations from all cards in the current project that have source information filled in, formats them according to the chosen style, and displays the result as copyable text.
@@ -252,7 +263,7 @@ Supported output styles: Chicago, SBL, MLA, APA, Turabian.
 
 ## Settings
 
-Open *Settings → Index Cards* to configure the plugin.
+Open *Settings > Index Cards* to configure the plugin.
 
 | Setting | Description |
 | --- | --- |
