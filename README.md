@@ -23,6 +23,7 @@ If you're a researcher, student, or academic writer, **Academic Mode** adds cita
 - [Projects](#projects)
 - [Categories & Subcategories](#categories--subcategories)
 - [Cards](#cards)
+- [Quick Capture](#quick-capture)
 - [Navigating Your Cards](#navigating-your-cards)
 - [Card Preview (Ctrl+Hover)](#card-preview-ctrlhover)
 - [Search](#search)
@@ -40,7 +41,7 @@ If you're a researcher, student, or academic writer, **Academic Mode** adds cita
 
 ## Installation
 
-Search for **Index Cards** in Obsidian's community plugin browser (*Settings > Community plugins > Browse*), install, and enable it. The plugin adds an **Index Cards** icon to your left ribbon.
+Search for **Index Cards** in Obsidian's community plugin browser (*Settings → Community plugins → Browse*), install, and enable it. The plugin adds an **Index Cards** icon to your left ribbon.
 
 ---
 
@@ -50,7 +51,7 @@ Click the Index Cards ribbon icon to open the plugin. It always opens as a full-
 
 On first launch you'll see the **Projects** dashboard — an empty workspace. Click **+ New Project** to create your first project, give it a name, and click into it. From there, create a category, and then start adding cards.
 
-The typical flow is: **Project > Category > Cards**. You can also add subcategories under any category if you need a second level of organization.
+The typical flow is: **Project → Category → Cards**. You can also add subcategories under any category if you need a second level of organization.
 
 ---
 
@@ -78,7 +79,7 @@ Inside a project, **categories** are the primary containers for your cards. Thin
 
 **Subcategories:** Any category can hold one level of subcategories. Open a category, then click **+ New Subcategory**. Subcategories appear as a smaller card pile within the category view. The pile badge shows how many cards are inside.
 
-**Renaming or deleting:** Right-click any category or subcategory for options. Deleting a category also deletes all cards inside it.
+**Renaming or deleting:** Right-click any category or subcategory for options. Deleting a category does not delete its cards — they become Uncategorized. Deleting a subcategory moves its cards up to the parent category.
 
 **Reordering:** Drag and drop categories to rearrange them within a project.
 
@@ -100,8 +101,8 @@ Inside a category or subcategory, click **+ New Card**. The card editor opens as
 
 The editor has two tabs:
 
-- **Note** — the main writing area, with a title field and a free-text note field.
-- **Source / Citation** — citation fields for Academic Mode (hidden unless Academic Mode is enabled in Settings).
+- **📄 Note** — the main writing area, with a title field and a free-text note field.
+- **📚 Source / Citation** — citation fields for Academic Mode (hidden unless Academic Mode is enabled in Settings).
 
 **Toolbar (Note tab):** Bold (`B`), Italic (`I`), Strikethrough (`S`), and Inline Code (`` ` ``) buttons wrap selected text in the appropriate Markdown syntax. Select text first, then click a button.
 
@@ -125,7 +126,7 @@ Click a card to open it in the editor. All fields are immediately editable.
 
 ### Duplicating a Card
 
-Right-click a card and select **Duplicate**. The copy appears in the same category with "Copy of" prepended to the title.
+Right-click a card and select **Duplicate**. The copy appears in the same category with "(copy)" added to the end of the title.
 
 ### Deleting a Card
 
@@ -141,9 +142,22 @@ Drag and drop cards within a category to rearrange them.
 
 ---
 
+## Quick Capture
+
+Turn selected text in any note into a card without opening Index Cards.
+
+1. In a note open in **Live Preview** or **Source mode**, select the text you want.
+2. Run **Quick capture selection to new card** from the command palette, or press the hotkey you've assigned to it in *Settings → Hotkeys* (there is no default).
+
+The card's body is the selected text followed by a link back to the note it came from, e.g. `— [[Source Note]]`. It goes into the **Uncategorized** pile of the project you last opened in Index Cards. If there is no such project, a picker asks which project to use. A notice confirms where the card went.
+
+The command only works when a note is being edited and has focus. It is unavailable in Reading view and while Index Cards or a sidebar pane is active.
+
+---
+
 ## Navigating Your Cards
 
-**Breadcrumb navigation:** A breadcrumb at the top of every view shows your current location (e.g. *Project > Category > Subcategory*). Click any segment to jump back to that level.
+**Breadcrumb navigation:** A breadcrumb at the top of every view shows your current location (e.g. *Project → Category → Subcategory*). Click any segment to jump back to that level.
 
 **Project jump dropdown:** A dropdown in the header lets you switch directly to any project without going back to the dashboard.
 
@@ -163,7 +177,9 @@ This is useful for quickly scanning cards in a dense category without clicking i
 
 ## Search
 
-Press `F` or click the search icon to open the search modal. Search looks across all card titles and note content within the current project. Results update as you type. Click a result to open that card.
+Press `F` or click the search icon to open the search modal. Search looks across card titles, note content, tags, and citation fields (author, title, journal/series, publisher, place, year, URL) within the current project. Results update as you type. Click a result to open that card.
+
+With the search box empty, the modal lists the 20 most recently edited cards in the project.
 
 ---
 
@@ -175,9 +191,11 @@ Right-click a card to see two separate move options, depending on where the card
 
 The card's current location is dimmed. A card sitting in a subcategory shows that subcategory dimmed, not its parent — moving it up to the parent category is a real move and stays available.
 
+**Drag and drop:** Inside an open category, drag a card onto a subcategory pile to file it there. The pile highlights while a card is over it.
+
 **Move to Project:** Moves the card to a **different project**. A modal lets you pick the destination project and, optionally, a category within it from a dropdown. Any subcategory is cleared, since subcategories belong to the project they were created in.
 
-**Duplicating to another location:** Duplicate the card first (right-click ? Duplicate), then move the copy.
+**Duplicating to another location:** Duplicate the card first (right-click → Duplicate), then move the copy.
 
 ---
 
@@ -211,9 +229,9 @@ Select **Compare** from the toolbar to open two cards side by side in a split vi
 
 ## Academic Mode
 
-Academic Mode is off by default. Enable it in **Settings > Index Cards > Academic Mode**.
+Academic Mode is off by default. Enable it in **Settings → Index Cards → Academic Mode**.
 
-When enabled, each card gains a **Source / Citation** tab in the editor with fields for:
+When enabled, each card gains a **📚 Source / Citation** tab in the editor with fields for:
 
 - Author
 - Title
@@ -227,7 +245,7 @@ A short citation (author + year) appears in the card footer when source informat
 
 ### Citation Parser
 
-Inside the Source tab, a paste box accepts citation text copied from any reference manager, browser extension, or bibliography. Copy a citation from Zotero (*Edit > Copy as > Bibliography Entry*), your library database, Google Scholar, Logos, or anywhere else — paste it in and click **Parse**. The plugin reads the text and fills in the author, title, journal/series, publisher, place, year, volume, issue, and pages fields automatically. Where the pasted text includes a specific locator (e.g. a footnote citing one page of a book), the parser also fills Cited Pages.
+Inside the Source tab, a paste box accepts citation text copied from any reference manager, browser extension, or bibliography. Copy a citation from Zotero (*Edit → Copy as → Bibliography Entry*), your library database, Google Scholar, Logos, or anywhere else — paste it in and click **Parse**. The plugin reads the text and fills in the author, title, journal/series, publisher, place, year, volume, issue, and pages fields automatically. Where the pasted text includes a specific locator (e.g. a footnote citing one page of a book), the parser also fills Cited Pages.
 
 You can also fill in the citation fields manually without using the parser at all.
 
@@ -245,7 +263,7 @@ After parsing, review the filled fields and make any corrections before saving.
 
 ### New Card from This Source
 
-When you're taking several cards from the same book or article, you don't need to re-enter or re-parse the citation each time. Right-click a card that already has source information and choose **New Card from This Source**. A new card opens in the same category and subcategory with the citation already filled in — everything except Cited Pages.
+When you're taking several cards from the same book or article, you don't need to re-enter or re-parse the citation each time. Right-click a card that already has source information and choose **📚 New Card from This Source**. A new card opens in the same category and subcategory with the citation already filled in — everything except Cited Pages.
 
 Cited Pages stays blank on purpose. It's the page *this particular card* refers to, so copying it would stamp the same page number onto every card from the source. Fill it in as you go.
 
@@ -255,7 +273,7 @@ The menu item only appears when Academic Mode is on and the card you right-click
 
 ### Bibliography Generator
 
-Click **Bibliography** in the toolbar (visible only in Academic Mode) to open the bibliography modal. Choose a citation style from the dropdown and click **Generate**. The plugin compiles citations from all cards in the current project that have source information filled in, formats them according to the chosen style, and displays the result as copyable text.
+Click **Bibliography** in the toolbar (visible only in Academic Mode) to open the bibliography modal. Choose a citation style from the dropdown and click **Generate**. The plugin compiles citations from all cards in the current project that have source information filled in, formats them according to the chosen style, and saves the result as a Markdown note (in the folder you name, or the vault root if left blank). The note opens in a new tab. Generating again for the same project updates that note.
 
 Supported output styles: Chicago, SBL, MLA, APA, Turabian.
 
@@ -263,7 +281,7 @@ Supported output styles: Chicago, SBL, MLA, APA, Turabian.
 
 ## Settings
 
-Open *Settings > Index Cards* to configure the plugin.
+Open *Settings → Index Cards* to configure the plugin.
 
 | Setting | Description |
 | --- | --- |
@@ -283,19 +301,28 @@ Open *Settings > Index Cards* to configure the plugin.
 
 | Shortcut | Action |
 | --- | --- |
+| `N` | New card (in the current category or project) |
+| `C` | New category (project view) |
 | `F` | Open search |
 | `Ctrl` + hover | Preview card content |
 | `Escape` | Close modal / go up one level |
 | `Tab` (in editor) | Move from title field to note field |
 | `B` / `I` / `S` / `` ` `` (with text selected) | Bold / Italic / Strikethrough / Inline code via toolbar |
+| *(assign in Settings → Hotkeys)* | Quick capture selection to new card |
+
+`N`, `C`, and `F` work when the Index Cards view has focus and you are not typing in a field.
 
 ---
 
 ## Data Storage
 
-All plugin data is stored in a single file at the root of your vault: `index-cards-data.json`. This file is created automatically on first use. It holds all your projects, categories, and cards while they're active.
+All plugin data is stored in a single file in your vault's configuration folder: `.obsidian/index-cards-data.json`. This file is created automatically on first use. It holds all your projects, categories, and cards while they're active.
 
-Index Cards is designed as a **working space, not a permanent archive**. The intended workflow is: gather cards while you're working through a project, then export them to your vault as proper Markdown files when the project wraps up. Once exported, the cards live in your vault like any other note — searchable, linkable, taggable — and you can clear out the project in Index Cards. Back up `index-cards-data.json` along with your vault if your projects are long-running.
+**Automatic backups:** Each time Obsidian starts, Index Cards saves a dated copy of the data file to `.obsidian/index-cards-backups/` and keeps the five most recent. A damaged file is never backed up, so older good copies are not pushed out by a bad one.
+
+**If the data file can't be read:** Index Cards shows a notice and stops saving, so the damaged file is not overwritten with an empty one. To recover, copy the most recent backup over `.obsidian/index-cards-data.json` (remove the date from the filename), then reopen Index Cards. Saving resumes once the file reads cleanly.
+
+Index Cards is designed as a **working space, not a permanent archive**. The intended workflow is: gather cards while you're working through a project, then export them to your vault as proper Markdown files when the project wraps up. Once exported, the cards live in your vault like any other note — searchable, linkable, taggable — and you can clear out the project in Index Cards. Back up `.obsidian/index-cards-data.json` along with your vault if your projects are long-running.
 
 ---
 
