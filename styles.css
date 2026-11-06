@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════
-   Index Cards — styles.css  v1.1
+   Index Cards — styles.css  v1.3
    All UI styling lives here. main.js is style-free.
    ═══════════════════════════════════════════════════════ */
 
@@ -381,6 +381,12 @@
   background: rgba(239,68,68,0.1);
 }
 
+/* Subcategory rows in the Move Card to Category dialog */
+.ic-move-subcat {
+  margin-left: 18px;
+  font-size: 0.9em;
+}
+
 /* ⋯ overflow menu button */
 .ic-btn-overflow {
   padding: 5px 10px;
@@ -630,10 +636,10 @@
   opacity: 1;
 }
 
-.ic-drop-hover .ic-pile-top,
-.ic-drop-hover {
-  border-color: var(--interactive-accent) !important;
-  box-shadow: 0 0 0 2px var(--interactive-accent) !important;
+.ic-pile-wrapper.ic-drop-hover .ic-pile-top,
+.ic-pile-wrapper.ic-drop-hover {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px var(--interactive-accent);
 }
 
 /* Subcategory piles row */
@@ -919,8 +925,8 @@
   border-radius: 8px;
   padding: 10px 12px 12px;
 }
-.ic-zotero-box label {
-  color: var(--text-normal) !important;
+.ic-field.ic-zotero-box label {
+  color: var(--text-normal);
 }
 .ic-zotero-box .ic-btn.danger {
   color: var(--text-muted);
@@ -1067,13 +1073,17 @@
 
 .ic-tag-del:hover { opacity: 1; }
 
-.ic-tag-input {
-  border: none !important;
-  background: transparent !important;
-  outline: none !important;
-  box-shadow: none !important;
-  padding: 0 !important;
-  margin: 0 !important;
+.ic-tag-container input.ic-tag-input[type="text"],
+.ic-tag-container input.ic-tag-input[type="text"]:hover,
+.ic-tag-container input.ic-tag-input[type="text"]:focus,
+.ic-tag-container input.ic-tag-input[type="text"]:focus-visible,
+.ic-tag-container input.ic-tag-input[type="text"]:active {
+  border: none;
+  background: transparent;
+  outline: none;
+  box-shadow: none;
+  padding: 0;
+  margin: 0;
   min-width: 80px;
   flex: 1;
   font-size: 0.82rem;
@@ -1421,7 +1431,7 @@
    Keep it simple — just like the old plugin did.
    ───────────────────────────────────────────── */
 .workspace-leaf-content[data-type="index-cards-main"] > .view-content {
-  padding: 0 !important;
+  padding: 0;
 }
 
 /* ─────────────────────────────────────────────
@@ -1575,14 +1585,14 @@
 /* Better padding on select dropdowns */
 .ic-field select {
   height: 36px;
-  padding: 0 10px !important;
+  padding: 0 10px;
   line-height: 1.4;
 }
 
 /* Bibliography modal select padding */
 .ic-modal-narrow select {
   height: 36px;
-  padding: 0 10px !important;
+  padding: 0 10px;
   line-height: 1.4;
 }
 

@@ -1,0 +1,48 @@
+# Based on Obsidian's official release workflow:
+# https://docs.obsidian.md/Plugins/Releasing/Release+your+plugin+with+GitHub+Actions
+# Index Cards has no build step, so the install and build steps are left out.
+# Pushing a tag attests and attaches the files committed at that tag, so the
+# repo and the release can't drift apart. The release starts as a draft.
+name: Release Obsidian plugin
+
+on:
+  push:
+    tags:
+      - "*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the tag matches manifest.json
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          version="$(jq -r .version manifest.json)"
+          if [ "$tag" != "$version" ]; then
+            echo "::error::Tag $tag does not match manifest.json version $version"
+            exit 1
+          fi
+
+      - name: Generate artifact attestation
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            main.js
+            manifest.json
+            styles.css
+
+      - name: Create draft release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          gh release create "$tag" \
+            --title="$tag" \
+            --draft \
+            main.js manifest.json styles.css

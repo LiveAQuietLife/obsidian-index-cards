@@ -63,7 +63,7 @@ The Projects dashboard is your home screen. Each project appears as a tile showi
 
 **Opening a project:** Click the project tile.
 
-**Renaming or deleting a project:** Right-click the project tile for options.
+**Renaming or deleting a project:** Hover over the project tile and use the **Rename** or **Delete** button.
 
 **Navigating back:** Use the breadcrumb at the top of the view, or press `Escape` to go up one level.
 
@@ -75,11 +75,11 @@ The Projects dashboard is your home screen. Each project appears as a tile showi
 
 Inside a project, **categories** are the primary containers for your cards. Think of them as the dividers in a physical index card box.
 
-**Creating a category:** Click **+ New Category** inside a project.
+**Creating a category:** Click **+ Category** inside a project.
 
-**Subcategories:** Any category can hold one level of subcategories. Open a category, then click **+ New Subcategory**. Subcategories appear as a smaller card pile within the category view. The pile badge shows how many cards are inside.
+**Subcategories:** Any category can hold one level of subcategories. Open a category, then click **+ Sub**. Subcategories appear as a smaller card pile within the category view. The pile badge shows how many cards are inside.
 
-**Renaming or deleting:** Right-click any category or subcategory for options. Deleting a category does not delete its cards — they become Uncategorized. Deleting a subcategory moves its cards up to the parent category.
+**Renaming or deleting:** Hover over any category or subcategory pile and use the **Rename** or **Delete** button. Deleting a category does not delete its cards — they become Uncategorized. Deleting a subcategory moves its cards up to the parent category.
 
 **Reordering:** Drag and drop categories to rearrange them within a project.
 
@@ -95,7 +95,7 @@ Cards are the core unit. Each card has a **title**, a **note** field, an optiona
 
 ### Creating a Card
 
-Inside a category or subcategory, click **+ New Card**. The card editor opens as a floating modal.
+Inside a project, category, or subcategory, click **+ Card**. The card editor opens as a floating modal.
 
 ### The Card Editor
 
@@ -126,11 +126,11 @@ Click a card to open it in the editor. All fields are immediately editable.
 
 ### Duplicating a Card
 
-Right-click a card and select **Duplicate**. The copy appears in the same category with "(copy)" added to the end of the title.
+Right-click a card and select **Duplicate Card**. The copy appears in the same category with "(copy)" added to the end of the title.
 
 ### Deleting a Card
 
-Right-click a card and select **Delete**, or use the delete button inside the card editor.
+Right-click a card and select **Delete Card**, or use the delete button inside the card editor.
 
 ### Reordering Cards
 
@@ -201,13 +201,13 @@ The card's current location is dimmed. A card sitting in a subcategory shows tha
 
 ## Exporting Cards
 
-Right-click a card and select **Export**, or use the export button in the toolbar to export multiple cards at once.
+Right-click a card and select **Export Card**, or choose **Export cards** from the **⋯** menu to export multiple cards at once.
 
 **Single card export:** Exports that card as a `.md` file directly to a location you choose.
 
 **Bulk export:** A modal lets you select any combination of cards across categories using a scrollable checklist. Cards are grouped by category for easy scanning. Selected cards export as individual Markdown files.
 
-Exported files include Obsidian-compatible frontmatter with all card fields (title, tags, color, note, and citation fields if Academic Mode is on).
+Exported files use the card title as a heading and the note as the body. Obsidian-compatible frontmatter holds the category, tags, color, dates, and any filled-in citation fields.
 
 [![Export Outline](https://github.com/LiveAQuietLife/obsidian-index-cards/blob/main/screenshots/export_outline_view.jpg)](https://github.com/LiveAQuietLife/obsidian-index-cards/blob/main/screenshots/export_outline_view.jpg)
 
@@ -215,13 +215,13 @@ Exported files include Obsidian-compatible frontmatter with all card fields (tit
 
 ## Recently Edited
 
-Click the **Recently Edited** button (clock icon in the toolbar) to see a list of the most recently modified cards across all projects. Click any card in the list to open it directly.
+Choose **Recently edited** from the **⋯** menu to see a list of the most recently modified cards across all projects. Click any card in the list to open it directly.
 
 ---
 
 ## Compare Cards
 
-Select **Compare** from the toolbar to open two cards side by side in a split view. Use the dropdowns in each pane to choose which cards to compare. Useful for checking for overlap, contradiction, or synthesis opportunities across your notes.
+Choose **Compare cards** from the **⋯** menu, or right-click a card and select **Compare with…**, to open two cards side by side in a split view. Use the dropdowns in each pane to choose which cards to compare. Useful for checking for overlap, contradiction, or synthesis opportunities across your notes.
 
 [![Compare Cards](https://github.com/LiveAQuietLife/obsidian-index-cards/raw/main/screenshots/compare_cards.jpg)](https://github.com/LiveAQuietLife/obsidian-index-cards/raw/main/screenshots/compare_cards.jpg)
 
@@ -273,7 +273,7 @@ The menu item only appears when Academic Mode is on and the card you right-click
 
 ### Bibliography Generator
 
-Click **Bibliography** in the toolbar (visible only in Academic Mode) to open the bibliography modal. Choose a citation style from the dropdown and click **Generate**. The plugin compiles citations from all cards in the current project that have source information filled in, formats them according to the chosen style, and saves the result as a Markdown note (in the folder you name, or the vault root if left blank). The note opens in a new tab. Generating again for the same project updates that note.
+Choose **Bibliography** from the **⋯** menu (visible only in Academic Mode) to open the bibliography modal. Choose a citation style from the dropdown and click **Generate**. The plugin compiles citations from all cards in the current project that have source information filled in, formats them according to the chosen style, and saves the result as a Markdown note (in the folder you name, or the vault root if left blank). The note opens in a new tab. Generating again for the same project updates that note.
 
 Supported output styles: Chicago, SBL, MLA, APA, Turabian.
 
@@ -320,7 +320,7 @@ All plugin data is stored in a single file in your vault's configuration folder:
 
 **Automatic backups:** Each time Obsidian starts, Index Cards saves a dated copy of the data file to `.obsidian/index-cards-backups/` and keeps the five most recent. A damaged file is never backed up, so older good copies are not pushed out by a bad one.
 
-**If the data file can't be read:** Index Cards shows a notice and stops saving, so the damaged file is not overwritten with an empty one. To recover, copy the most recent backup over `.obsidian/index-cards-data.json` (remove the date from the filename), then reopen Index Cards. Saving resumes once the file reads cleanly.
+**If the data file can't be read:** Index Cards shows a notice and stops saving, so the damaged file is not overwritten with an empty one. To recover, copy the most recent backup over `.obsidian/index-cards-data.json` (remove the date from the filename), then reopen Index Cards. Saving resumes once the file reads cleanly. If you close a card you were editing while saving is stopped, its title and note are copied to your clipboard so you can paste them somewhere safe.
 
 Index Cards is designed as a **working space, not a permanent archive**. The intended workflow is: gather cards while you're working through a project, then export them to your vault as proper Markdown files when the project wraps up. Once exported, the cards live in your vault like any other note — searchable, linkable, taggable — and you can clear out the project in Index Cards. Back up `.obsidian/index-cards-data.json` along with your vault if your projects are long-running.
 

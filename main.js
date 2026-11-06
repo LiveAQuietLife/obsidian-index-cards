@@ -1,5 +1,5 @@
 /*
- * Index Cards — Obsidian Plugin  v1.1.1
+ * Index Cards — Obsidian Plugin  v1.3.2
  *
  * Features:
  *  - Projects (separate workspaces)
@@ -30,6 +30,8 @@ const {
 const VIEW_TYPE         = 'index-cards-main';
 const VIEW_TYPE_SANDBOX = 'index-cards-outline-sandbox';
 const DATA_FILE         = 'index-cards-data.json';
+const BACKUP_DIR        = 'index-cards-backups';
+const BACKUP_KEEP       = 5;
 
 // ─────────────────────────────────────────────
 //  Card size presets
@@ -73,6 +75,7 @@ const DEFAULT_SETTINGS = {
   ruledLines    : true,
   timestampFormat: 'local',
   academicMode  : false,
+  lastActiveProjectId: null,
 };
 
 // ═════════════════════════════════════════════
@@ -109,6 +112,14 @@ function emptyCard(categoryId = null) {
   };
 }
 
+// Citation fields copied by "New Card from This Source".
+// citedPages is deliberately excluded — it's the per-card locator driving the
+// footnote/short-citation text. Copying it stamps the same page on every card.
+const SOURCE_COPY_FIELDS = [
+  'author', 'title', 'sourceTitle', 'publisher', 'place', 'year',
+  'edition', 'volume', 'issue', 'pages', 'url', 'accessed',
+];
+
 function emptyCategory(name) {
   return { id: makeId(), name, parentId: null };
 }
@@ -122,101 +133,6 @@ function slugify(text, format) {
   if (format === 'underscores') return clean.replace(/\s+/g, '_');
   if (format === 'dashes')      return clean.replace(/\s+/g, '-');
   return clean;
-}
-
-// ───────────────────────────────────────────────────────────
-// Chicago/Turabian FOOTNOTE fast-path parser.
-// Logos (and similar) export footnotes as:
-//   [Author, ] Title [, Series] (Place: Publisher, Year), Locator.
-// This shape is distinct from bibliography styles, so we parse it
-// structurally using the "(Place: Publisher, Year)" parenthetical as an
-// anchor. Returns a field object, or null when the signature isn't present
-// (in which case parseClipboardCitation falls through to its heuristics).
-// The trailing locator (page or scripture ref) maps to citedPages.
-function parseFootnoteCitation(text) {
-  const t = String(text || '').trim();
-  if (!t) return null;
-  if (/https?:\/\//.test(t)) return null;  // web citations → existing heuristics
-
-  const parenRe = /\(([^:()]+):\s*([^()]+?),\s*(1[5-9]\d{2}|20[0-4]\d)\)/;
-  const m = t.match(parenRe);
-  if (!m) return null;
-
-  const place      = m[1].trim();
-  const publisher  = m[2].trim();
-  const year       = m[3];
-  const parenStart = m.index;
-  const parenEnd   = m.index + m[0].length;
-
-  let head = t.slice(0, parenStart).replace(/[\s,]+$/, '').trim();
-  if (!head) return null;
-
-  let citedPages = t.slice(parenEnd).replace(/^[)\s,]+/, '').replace(/\s*\.\s*$/, '').trim();
-  if (citedPages.length > 40) citedPages = '';
-
-  // Edition: "electronic ed.", "2nd ed.", "rev. ed.", "3d ed."
-  let edition = '';
-  const edRe = /,?\s*((?:\d+(?:st|nd|rd|th)|\d+d|rev\.?|revised|electronic|abridged|unabridged)\s+ed\.?)/i;
-  const edM = head.match(edRe);
-  if (edM) {
-    edition = edM[1].replace(/\s+/g, ' ').replace(/\.$/, '').trim();
-    head = (head.slice(0, edM.index) + head.slice(edM.index + edM[0].length))
-      .replace(/,\s*,/g, ',').replace(/[\s,]+$/, '').trim();
-  }
-
-  const looksLikeName = seg => {
-    const s = (seg || '').trim();
-    if (!s) return false;
-    if (s.includes(':')) return false;
-    if (/\d/.test(s)) return false;
-    if (/^(the|a|an)\b/i.test(s)) return false;
-    if (s.split(/\s+/).length > 4) return false;
-    return /^[A-Z]/.test(s);
-  };
-
-  // Author vs. no-author
-  let author = '';
-  let remainder = head;
-  const multi = head.match(/^(.+?),\s+(?:and|&)\s+([^,]+?),\s+(.+)$/i);
-  const duo   = head.match(/^([A-Z][^,]+?)\s+(?:and|&)\s+([A-Z][^,]+?),\s+(.+)$/i);
-
-  if (multi && multi[1].split(',').every(looksLikeName) && looksLikeName(multi[2])) {
-    author    = (multi[1] + ', and ' + multi[2]).replace(/\s+/g, ' ').trim();
-    remainder = multi[3].trim();
-  } else if (duo && looksLikeName(duo[1]) && looksLikeName(duo[2])) {
-    author    = (duo[1] + ' and ' + duo[2]).replace(/\s+/g, ' ').trim();
-    remainder = duo[3].trim();
-  } else {
-    const commaIdx = head.indexOf(',');
-    if (commaIdx !== -1) {
-      const first = head.slice(0, commaIdx).trim();
-      if (looksLikeName(first)) {
-        author    = first;
-        remainder = head.slice(commaIdx + 1).trim();
-      }
-    }
-  }
-
-  // Title vs. series
-  let title = remainder;
-  let sourceTitle = '';
-  const seriesKw = /\b(Commentary|Commentaries|Series|Library|Studies|Bibliotheca|Handbook|Hermeneia|Interpretation|Anchor|Old Testament Library|New International)\b/;
-  if (remainder.includes(',')) {
-    const segs = remainder.split(',');
-    for (let i = 1; i < segs.length; i++) {
-      if (seriesKw.test(segs[i])) {
-        const before = segs.slice(0, i).join(',').trim();
-        const after  = segs.slice(i).join(',').trim();
-        if (before && after) { title = before; sourceTitle = after; }
-        break;
-      }
-    }
-  }
-
-  title = title.replace(/[\s,]+$/, '').trim();
-  if (!title) return null;
-
-  return { author, title, sourceTitle, publisher, place, year, edition, citedPages };
 }
 
 function formatTimestamp(ts, format) {
@@ -234,9 +150,21 @@ function formatTimestamp(ts, format) {
   return date + ' · ' + time;
 }
 
+// Returns a debounced wrapper with two extras the card editor depends on:
+//   .cancel()  — abort a pending run (used when a card is deleted mid-edit)
+//   .pending() — is a run still armed? (used to flush on modal close)
+// Without these, a timer armed by the last keystroke outlives the modal and
+// writes a stale whole-file snapshot 2 s later, clobbering anything saved in
+// between — or resurrecting a card the user just deleted.
 function debounce(fn, ms) {
-  let t;
-  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+  let t = null;
+  const wrapped = (...args) => {
+    clearTimeout(t);
+    t = setTimeout(() => { t = null; fn(...args); }, ms);
+  };
+  wrapped.cancel  = () => { clearTimeout(t); t = null; };
+  wrapped.pending = () => t !== null;
+  return wrapped;
 }
 
 // Focus the first matching input/textarea inside a container, retrying via rAF
@@ -314,28 +242,128 @@ function showContextMenu(e, items) {
 // ═════════════════════════════════════════════
 //  PERSISTENCE
 // ═════════════════════════════════════════════
+// Set when the data file exists but can't be parsed. While set, saveData()
+// refuses to write — otherwise the empty fallback store below would be
+// written over the user's real (if damaged) data on the next save.
+let _dataLoadError = false;
+let _lastBlockedNotice = 0;   // one close can attempt several saves; say so once
+
+// Valid JSON isn't enough: "null", "[]" or {"cards": 5} would otherwise crash
+// the normaliser below, or (for an array) load as empty and save nothing.
+function isValidStore(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return false;
+  return ['projects', 'categories', 'cards'].every(k => raw[k] == null || Array.isArray(raw[k]));
+}
+
 async function loadData(plugin) {
   const path = normalizePath(plugin.app.vault.configDir + '/' + DATA_FILE);
-  try {
-    const raw = JSON.parse(await plugin.app.vault.adapter.read(path));
-    if (!raw.projects) raw.projects = [];
-    // Normalise cards — ensure all expected fields exist
-    raw.cards = (raw.cards || []).map(c => ({
-      tags: [], color: 'default', subcategoryId: null,
-      updatedAt: c.createdAt || Date.now(),
-      ...c,
-    }));
-    // Normalise categories
-    raw.categories = (raw.categories || []).map(c => ({ parentId: null, ...c }));
-    return raw;
-  } catch {
+  const adapter = plugin.app.vault.adapter;
+  // Missing file = fresh install. Empty store is correct here.
+  // Also clears any save block: if the user removed a damaged file, nothing is
+  // left to protect, and leaving the block on would stop saving until a reload.
+  if (!(await adapter.exists(path))) {
+    _dataLoadError = false;
     return { projects: [], categories: [], cards: [] };
   }
+  let raw;
+  try {
+    raw = JSON.parse(await adapter.read(path));
+    if (!isValidStore(raw)) throw new Error('data file has an unexpected structure');
+  } catch (e) {
+    if (!_dataLoadError) {
+      console.error('[Index Cards] data file could not be read:', e);
+      new Notice('Index Cards: the data file could not be read, so saving is disabled to protect it. ' +
+                 'Restore a copy from .obsidian/index-cards-backups, then reopen Index Cards.', 0);
+    }
+    _dataLoadError = true;
+    return { projects: [], categories: [], cards: [] };
+  }
+  _dataLoadError = false;   // file reads cleanly again (e.g. restored from backup)
+  if (!raw.projects) raw.projects = [];
+  // Normalise cards — ensure all expected fields exist
+  raw.cards = (raw.cards || []).map(c => ({
+    tags: [], color: 'default', subcategoryId: null, front: '', cardTitle: '',
+    updatedAt: c.createdAt || Date.now(),
+    ...c,
+  }));
+  // Normalise categories
+  raw.categories = (raw.categories || []).map(c => ({ parentId: null, ...c }));
+  return raw;
 }
 
 async function saveData(plugin, data) {
+  if (_dataLoadError) {
+    if (Date.now() - _lastBlockedNotice > 5000) {
+      _lastBlockedNotice = Date.now();
+      new Notice('Index Cards: change not saved — the data file could not be read.');
+    }
+    throw new Error('[Index Cards] save blocked: data file unreadable');
+  }
   const path = normalizePath(plugin.app.vault.configDir + '/' + DATA_FILE);
   await plugin.app.vault.adapter.write(path, JSON.stringify(data, null, 2));
+}
+
+// Fresh-read mutator. Replaces the stale-snapshot pattern: callers that held
+// a data object from modal-open time and wrote it whole back to disk would
+// silently erase anything written by another path (e.g. quick capture) while
+// the modal was open. This always re-reads immediately before mutating, so
+// the only unsafe window is the synchronous span of `fn` itself.
+// Calls are queued: each load-mutate-save runs only after the previous one
+// finishes, so two writers (e.g. an autosave and the Close button) can't
+// interleave and overwrite each other. `fn` must not call mutateData itself
+// — it would wait on its own queue slot forever.
+let _writeQueue = Promise.resolve();
+function mutateData(plugin, fn) {
+  const run = _writeQueue.then(async () => {
+    const data = await loadData(plugin);
+    const result = await fn(data);
+    await saveData(plugin, data);
+    return result;
+  });
+  _writeQueue = run.catch(() => {});   // a failed write must not block later ones
+  return run;
+}
+
+// Session-start safety net. Called once from onload: snapshots the last-known-good
+// index-cards-data.json into a backups folder, then rotates to keep the newest
+// BACKUP_KEEP copies. Guards against the single-file data store being lost to a
+// corrupt write or crash. Never throws — a failed backup must not break plugin load.
+async function backupDataFile(plugin) {
+  const adapter = plugin.app.vault.adapter;
+  const cfg     = plugin.app.vault.configDir;
+  const src     = normalizePath(cfg + '/' + DATA_FILE);
+  const dir     = normalizePath(cfg + '/' + BACKUP_DIR);
+  try {
+    // Nothing to protect on a fresh install.
+    if (!(await adapter.exists(src))) return;
+
+    // Only snapshot a file that parses — never rotate a good backup out in favour
+    // of already-corrupt data. A parse failure here is exactly when the user will
+    // want an older backup intact.
+    const raw = await adapter.read(src);
+    try { if (!isValidStore(JSON.parse(raw))) throw new Error('unexpected structure'); }
+    catch { console.warn('[Index Cards] data file did not parse; skipping backup to preserve prior good copies.'); return; }
+
+    if (!(await adapter.exists(dir))) await adapter.mkdir(dir);
+
+    const d  = new Date();
+    const p2 = n => String(n).padStart(2, '0');
+    const stamp = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
+    const dest = normalizePath(`${dir}/index-cards-data.${stamp}.json`);
+    if (!(await adapter.exists(dest))) await adapter.write(dest, raw);
+
+    // Rotate: keep newest BACKUP_KEEP. Filenames are timestamp-sortable, so a
+    // lexical sort is chronological. Match our exact pattern so nothing else is touched.
+    const listing = await adapter.list(dir);
+    const backups = (listing.files || [])
+      .filter(f => /index-cards-data\.\d{4}-\d{2}-\d{2}_\d{6}\.json$/.test(f))
+      .sort();
+    for (const old of backups.slice(0, Math.max(0, backups.length - BACKUP_KEEP))) {
+      try { await adapter.remove(old); } catch (e) { console.warn('[Index Cards] could not rotate out backup:', old, e); }
+    }
+  } catch (e) {
+    console.warn('[Index Cards] backup failed (non-fatal):', e);
+  }
 }
 
 function getAllFolders(app) {
@@ -502,7 +530,16 @@ class IndexCardsView extends ItemView {
   getIcon()        { return 'library'; }
 
   async onOpen()  { await this.renderProjects(); }
-  async onClose() {}
+
+  // _ensurePopover() parks a node on document.body and two listeners on
+  // document. Neither is scoped to this view, so without an explicit teardown
+  // every open/close cycle leaks a node plus two handlers holding a dead view.
+  async onClose() {
+    if (this._hoverKeyDown) document.removeEventListener('keydown', this._hoverKeyDown);
+    if (this._hoverKeyUp)   document.removeEventListener('keyup',   this._hoverKeyUp);
+    if (this._hoverPop)     this._hoverPop.remove();
+    this._hoverPop = this._hoverKeyDown = this._hoverKeyUp = null;
+  }
 
   cardSize() {
     if (this._runtimeSize) return this._runtimeSize;
@@ -514,7 +551,14 @@ class IndexCardsView extends ItemView {
   // ── Navigation helpers ──
   async goProjects()              { this._runtimeSize = null; this.screen = 'projects'; await this.renderProjects(); }
   async goCanvas()                { this._runtimeSize = null; this.screen = 'canvas';   await this.renderCanvas(); }
-  async openCanvas(pid, pname)    { this._runtimeSize = null; this.screen = 'canvas';   this.activeProjectId = pid; this.activeProjectName = pname; await this.renderCanvas(); }
+  async openCanvas(pid, pname)    { this._runtimeSize = null; this.screen = 'canvas';   this.activeProjectId = pid; this.activeProjectName = pname; this.plugin.settings.lastActiveProjectId = pid; this.plugin.saveSettings(); await this.renderCanvas(); }
+  // Re-render the current screen (used by quick-capture to reflect new cards live).
+  async refresh() {
+    if (this.screen === 'projects')    return this.renderProjects();
+    if (this.screen === 'canvas')      return this.renderCanvas();
+    if (this.screen === 'pile')        return this.renderPile();
+    if (this.screen === 'subcat')      return this.renderSubcatView();
+  }
   async openPile(cid, cname)      { this._runtimeSize = null; this.screen = 'pile';     this.activeCatId = cid;     this.activeCatName = cname;     await this.renderPile(); }
 
   // ── Quick-nav breadcrumb + project jump ──
@@ -677,11 +721,12 @@ class IndexCardsView extends ItemView {
       e.preventDefault(); card.removeClass('ic-project-drop-hover');
       const srcId = e.dataTransfer.getData('project-drag');
       if (!srcId || srcId === project.id) return;
-      const projs = data.projects;
-      const si = projs.findIndex(p => p.id === srcId);
-      const di = projs.findIndex(p => p.id === project.id);
-      if (si >= 0 && di >= 0) { const [m] = projs.splice(si, 1); projs.splice(di, 0, m); }
-      await saveData(this.plugin, data);
+      await mutateData(this.plugin, fresh => {
+        const projs = fresh.projects;
+        const si = projs.findIndex(p => p.id === srcId);
+        const di = projs.findIndex(p => p.id === project.id);
+        if (si >= 0 && di >= 0) { const [m] = projs.splice(si, 1); projs.splice(di, 0, m); }
+      });
       await this.renderProjects();
     };
 
@@ -718,10 +763,11 @@ class IndexCardsView extends ItemView {
           message: `${catCount} categories and ${cardCount} cards will be permanently deleted.\nThis cannot be undone.`,
           confirmText: 'Delete', danger: true,
         })) return;
-        data.projects   = data.projects.filter(p => p.id !== project.id);
-        data.categories = data.categories.filter(c => c.projectId !== project.id);
-        data.cards      = data.cards.filter(c => c.projectId !== project.id);
-        await saveData(this.plugin, data);
+        await mutateData(this.plugin, fresh => {
+          fresh.projects   = fresh.projects.filter(p => p.id !== project.id);
+          fresh.categories = fresh.categories.filter(c => c.projectId !== project.id);
+          fresh.cards      = fresh.cards.filter(c => c.projectId !== project.id);
+        });
         await this.renderProjects();
         new Notice(`Project "${project.name}" deleted.`);
       };
@@ -766,7 +812,7 @@ class IndexCardsView extends ItemView {
       };
       item('↑ Export cards', () => new ExportModal(this.plugin, data, this.activeProjectId).open());
       item('📄 Export as Outline', () => new OutlineSelectionModal(this.plugin, data, this.activeProjectId, this.activeProjectName).open());
-      item('📚 Bibliography', () => new BibliographyModal(this.plugin, data, this.activeProjectId).open());
+      if (this.plugin.settings.academicMode) item('📚 Bibliography', () => new BibliographyModal(this.plugin, data, this.activeProjectId).open());
       item('⚖️ Compare cards', () => new CompareModal(this.plugin, data, this.activeProjectId, null).open());
       menu.createDiv('ic-overflow-menu-separator');
       item('🕒 Recently edited', () => new RecentlyEditedModal(this.plugin, data, card => this.openCardFromSearch(card, data)).open());
@@ -822,18 +868,22 @@ class IndexCardsView extends ItemView {
         w.removeClass('ic-drop-hover');
         const srcCatId = e.dataTransfer.getData('cat-drag');
         if (srcCatId && srcCatId !== cat.id) {
-          const cats = data.categories;
-          const si = cats.findIndex(c => c.id === srcCatId);
-          const di = cats.findIndex(c => c.id === cat.id);
-          if (si >= 0 && di >= 0) { const [m] = cats.splice(si, 1); cats.splice(di, 0, m); }
-          await saveData(this.plugin, data);
+          await mutateData(this.plugin, fresh => {
+            const cats = fresh.categories;
+            const si = cats.findIndex(c => c.id === srcCatId);
+            const di = cats.findIndex(c => c.id === cat.id);
+            if (si >= 0 && di >= 0) { const [m] = cats.splice(si, 1); cats.splice(di, 0, m); }
+          });
           await this.renderCanvas();
           return;
         }
         const cardId = e.dataTransfer.getData('text/plain');
         if (cardId) {
-          const card = data.cards.find(c => c.id === cardId);
-          if (card) { card.categoryId = cat.id; await saveData(this.plugin, data); await this.renderCanvas(); }
+          await mutateData(this.plugin, fresh => {
+            const card = fresh.cards.find(c => c.id === cardId);
+            if (card) card.categoryId = cat.id;
+          });
+          await this.renderCanvas();
         }
       };
     }
@@ -854,8 +904,11 @@ class IndexCardsView extends ItemView {
       wrapper.removeClass('ic-drop-hover');
       const cardId = e.dataTransfer.getData('text/plain');
       if (!cardId) return;
-      const card = data.cards.find(c => c.id === cardId);
-      if (card) { card.categoryId = catId; await saveData(this.plugin, data); await this.renderCanvas(); }
+      await mutateData(this.plugin, fresh => {
+        const card = fresh.cards.find(c => c.id === cardId);
+        if (card) card.categoryId = catId;
+      });
+      await this.renderCanvas();
     };
 
     const pile = wrapper.createDiv('ic-pile');
@@ -919,9 +972,10 @@ class IndexCardsView extends ItemView {
             message: 'Cards will become Uncategorized.',
             confirmText: 'Delete', danger: true,
           })) return;
-          data.categories = data.categories.filter(c => c.id !== catId);
-          data.cards = data.cards.map(c => c.categoryId === catId ? { ...c, categoryId: null } : c);
-          await saveData(this.plugin, data);
+          await mutateData(this.plugin, fresh => {
+            fresh.categories = fresh.categories.filter(c => c.id !== catId);
+            fresh.cards = fresh.cards.map(c => c.categoryId === catId ? { ...c, categoryId: null } : c);
+          });
           await this.renderCanvas();
         };
     }
@@ -1081,7 +1135,7 @@ class IndexCardsView extends ItemView {
       item('⚖️ Compare cards', () => new CompareModal(this.plugin, data, this.activeProjectId, null).open());
       item('↑ Export cards',   () => new ExportModal(this.plugin, data, this.activeProjectId).open());
       item('📄 Export as Outline', () => new OutlineSelectionModal(this.plugin, data, this.activeProjectId, this.activeProjectName).open());
-      item('📚 Bibliography',  () => new BibliographyModal(this.plugin, data, this.activeProjectId).open());
+      if (this.plugin.settings.academicMode) item('📚 Bibliography',  () => new BibliographyModal(this.plugin, data, this.activeProjectId).open());
       menu.createDiv('ic-overflow-menu-separator');
       item('🕒 Recently edited', () => new RecentlyEditedModal(this.plugin, data, card => this.openCardFromSearch(card, data)).open());
       setTimeout(() => document.addEventListener('mousedown', function h(ev) {
@@ -1120,7 +1174,7 @@ class IndexCardsView extends ItemView {
     // Cards first
     let dragSrcId = null;
     for (const card of cards)
-      this.renderCardWidget(grid, card, data, id => { dragSrcId = id; }, () => dragSrcId);
+      this.renderCardWidget(grid, card, data, id => { dragSrcId = id; }, () => dragSrcId, () => this.renderPile());
 
     // Subcategory piles BELOW cards
     if (subcats.length) {
@@ -1140,6 +1194,27 @@ class IndexCardsView extends ItemView {
     const pH = Math.round(pW * (size.h / size.w));
 
     const wrapper = container.createDiv('ic-pile-wrapper ic-subcat-pile-wrapper');
+
+    // #2: renderSubcategoryPile() is a separate hand-built renderer from
+    // renderPileWidget() and never had drop-target wiring — subcategory
+    // piles had a click handler but nothing here at all.
+    wrapper.ondragover = e => {
+      e.preventDefault();
+      wrapper.addClass('ic-drop-hover');
+    };
+    wrapper.ondragleave = () => wrapper.removeClass('ic-drop-hover');
+    wrapper.ondrop = async e => {
+      e.preventDefault();
+      wrapper.removeClass('ic-drop-hover');
+      const cardId = e.dataTransfer.getData('text/plain');
+      if (!cardId) return;
+      await mutateData(this.plugin, fresh => {
+        const card = fresh.cards.find(c => c.id === cardId);
+        if (card) card.subcategoryId = sub.id;
+      });
+      await this.renderPile();
+    };
+
     const pile    = wrapper.createDiv('ic-pile');
     pile.style.width  = pW + 'px';
     pile.style.height = pH + 'px';
@@ -1179,9 +1254,10 @@ class IndexCardsView extends ItemView {
           message: 'Cards will move up to the parent category.',
           confirmText: 'Delete', danger: true,
         })) return;
-        data.categories = data.categories.filter(c => c.id !== sub.id);
-        data.cards = data.cards.map(c => c.subcategoryId === sub.id ? { ...c, subcategoryId: null } : c);
-        await saveData(this.plugin, data);
+        await mutateData(this.plugin, fresh => {
+          fresh.categories = fresh.categories.filter(c => c.id !== sub.id);
+          fresh.cards = fresh.cards.map(c => c.subcategoryId === sub.id ? { ...c, subcategoryId: null } : c);
+        });
         await this.renderPile();
       };
   }
@@ -1280,13 +1356,18 @@ class IndexCardsView extends ItemView {
 
     let dragSrcId = null;
     for (const card of cards)
-      this.renderCardWidget(grid, card, data, id => { dragSrcId = id; }, () => dragSrcId, true);
+      this.renderCardWidget(grid, card, data, id => { dragSrcId = id; }, () => dragSrcId, () => this.renderSubcatView());
   }
 
   // ══════════════════════════════════════════
   //  CARD WIDGET
   // ══════════════════════════════════════════
-  renderCardWidget(grid, card, data, setDragSrc, getDragSrc) {
+  // `refresh` redraws whichever screen this widget was rendered into. It has to
+  // come from the caller: the widget is shared by the pile view and the
+  // subcategory view, and hardcoding renderPile() repainted the parent category
+  // over the subcategory while this.screen stayed 'subcat' — leaving pile
+  // content and pile keybindings under a subcategory breadcrumb.
+  renderCardWidget(grid, card, data, setDragSrc, getDragSrc, refresh) {
     const size = this.cardSize();
     const el   = grid.createDiv('ic-card');
     el.style.width  = size.w + 'px';
@@ -1315,17 +1396,19 @@ class IndexCardsView extends ItemView {
       el.removeClass('ic-card-drop-target');
       const srcId = e.dataTransfer.getData('text/plain');
       if (!srcId || srcId === card.id) return;
-      const si = data.cards.findIndex(c => c.id === srcId);
-      const di = data.cards.findIndex(c => c.id === card.id);
-      if (si < 0 || di < 0) return;
-      const srcCard = data.cards[si];
-      srcCard.categoryId = card.categoryId;
-      data.cards.splice(si, 1);
-      const newDi = data.cards.findIndex(c => c.id === card.id);
-      const insertPos = si < di ? newDi + 1 : newDi;
-      data.cards.splice(insertPos, 0, srcCard);
-      await saveData(this.plugin, data);
-      await this.renderPile();
+      await mutateData(this.plugin, fresh => {
+        const si = fresh.cards.findIndex(c => c.id === srcId);
+        const di = fresh.cards.findIndex(c => c.id === card.id);
+        if (si < 0 || di < 0) return;
+        const srcCard = fresh.cards[si];
+        const targetCard = fresh.cards[di];
+        srcCard.categoryId = targetCard.categoryId;
+        fresh.cards.splice(si, 1);
+        const newDi = fresh.cards.findIndex(c => c.id === card.id);
+        const insertPos = si < di ? newDi + 1 : newDi;
+        fresh.cards.splice(insertPos, 0, srcCard);
+      });
+      await refresh();
     };
 
     // ── Card content ──
@@ -1393,13 +1476,13 @@ class IndexCardsView extends ItemView {
     actions.createEl('button', { text: '✏️', cls: 'ic-card-action', title: 'Edit' })
       .onclick = e => {
         e.stopPropagation();
-        new CardEditorModal(this.plugin, data, card, this.activeCatId, this.activeProjectId, () => this.renderPile()).open();
+        new CardEditorModal(this.plugin, data, card, this.activeCatId, this.activeProjectId, () => refresh()).open();
       };
 
     actions.createEl('button', { text: '📂', cls: 'ic-card-action', title: 'Move to category' })
       .onclick = e => {
         e.stopPropagation();
-        new MoveCategoryModal(this.plugin, card, data, this.activeProjectId, () => this.renderPile()).open();
+        new MoveCategoryModal(this.plugin, card, data, this.activeProjectId, () => refresh()).open();
       };
 
     actions.createEl('button', { text: '🗑', cls: 'ic-card-action', title: 'Delete' })
@@ -1411,14 +1494,15 @@ class IndexCardsView extends ItemView {
           message: 'This cannot be undone.',
           confirmText: 'Delete', danger: true,
         })) return;
-        data.cards = data.cards.filter(c => c.id !== card.id);
-        await saveData(this.plugin, data);
-        await this.renderPile();
+        await mutateData(this.plugin, fresh => {
+          fresh.cards = fresh.cards.filter(c => c.id !== card.id);
+        });
+        await refresh();
       };
 
     // Open editor on card click
     el.onclick = () =>
-      new CardEditorModal(this.plugin, data, card, this.activeCatId, this.activeProjectId, () => this.renderPile()).open();
+      new CardEditorModal(this.plugin, data, card, this.activeCatId, this.activeProjectId, () => refresh()).open();
 
     // ── Right-click context menu ──
     el.oncontextmenu = e => {
@@ -1427,16 +1511,16 @@ class IndexCardsView extends ItemView {
         { type: 'label', text: 'Card Actions' },
         {
           text: '✏️  Edit Card',
-          action: () => new CardEditorModal(this.plugin, data, card, this.activeCatId, this.activeProjectId, () => this.renderPile()).open(),
+          action: () => new CardEditorModal(this.plugin, data, card, this.activeCatId, this.activeProjectId, () => refresh()).open(),
         },
         { type: 'separator' },
         {
           text: '📂  Move to Category',
-          action: () => new MoveCategoryModal(this.plugin, card, data, this.activeProjectId, () => this.renderPile()).open(),
+          action: () => new MoveCategoryModal(this.plugin, card, data, this.activeProjectId, () => refresh()).open(),
         },
         {
           text: '🗂️  Move to Project',
-          action: () => new MoveToProjectModal(this.plugin, card, data, this.activeProjectId, () => this.renderPile()).open(),
+          action: () => new MoveToProjectModal(this.plugin, card, data, this.activeProjectId, () => refresh()).open(),
         },
         { type: 'separator' },
         {
@@ -1450,20 +1534,41 @@ class IndexCardsView extends ItemView {
         {
           text: '📋  Duplicate Card',
           action: async () => {
-            const dup = {
-              ...card,
-              id: makeId(),
-              cardTitle: card.cardTitle ? card.cardTitle + ' (copy)' : '',
-              createdAt: Date.now(),
-              updatedAt: Date.now(),
-            };
-            const idx = data.cards.findIndex(c => c.id === card.id);
-            data.cards.splice(idx + 1, 0, dup);
-            await saveData(this.plugin, data);
-            await this.renderPile();
+            await mutateData(this.plugin, fresh => {
+              const idx = fresh.cards.findIndex(c => c.id === card.id);
+              if (idx < 0) return;
+              const source = fresh.cards[idx];
+              const dup = {
+                ...source,
+                id: makeId(),
+                cardTitle: source.cardTitle ? source.cardTitle + ' (copy)' : '',
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+              };
+              fresh.cards.splice(idx + 1, 0, dup);
+            });
+            await refresh();
             new Notice('Card duplicated.');
           },
         },
+        // Hidden unless Academic Mode is on AND this card actually carries
+        // citation data — otherwise the action would produce a blank card.
+        ...(this.plugin.settings.academicMode
+            && SOURCE_COPY_FIELDS.some(k => (card[k] || '').trim())
+          ? [{
+              text: '📚  New Card from This Source',
+              action: () => {
+                // subcategoryId is placement, not citation — carried separately
+                // so the new card lands beside its sibling, not in the parent.
+                const prefill = { subcategoryId: card.subcategoryId || null };
+                for (const k of SOURCE_COPY_FIELDS) if (card[k]) prefill[k] = card[k];
+                new CardEditorModal(
+                  this.plugin, data, null, card.categoryId, this.activeProjectId,
+                  () => refresh(), prefill,
+                ).open();
+              },
+            }]
+          : []),
         { type: 'separator' },
         {
           text: '🗑  Delete Card', danger: true,
@@ -1474,9 +1579,10 @@ class IndexCardsView extends ItemView {
               message: 'This cannot be undone.',
               confirmText: 'Delete', danger: true,
             })) return;
-            data.cards = data.cards.filter(c => c.id !== card.id);
-            await saveData(this.plugin, data);
-            await this.renderPile();
+            await mutateData(this.plugin, fresh => {
+              fresh.cards = fresh.cards.filter(c => c.id !== card.id);
+            });
+            await refresh();
           },
         },
       ]);
@@ -1514,14 +1620,19 @@ class SearchModal extends Modal {
   }
 
   onOpen() {
-    // Mark a global flag so we never open two at once
-    if (window._icSearchOpen) { this.close(); return; }
-    window._icSearchOpen = true;
+    // #7: lock by identity, not a plain boolean. A boolean can't tell
+    // "someone else holds the lock" from "I hold the lock" — so a
+    // rejected duplicate's own onClose() (fired by the this.close() call
+    // below) would clear a lock that a still-open, unrelated instance
+    // depends on. Storing the owning instance fixes that: only the
+    // instance that actually holds the lock is allowed to release it.
+    if (window._icSearchOpenModal && window._icSearchOpenModal !== this) { this.close(); return; }
+    window._icSearchOpenModal = this;
     this._buildUI();
   }
 
   onClose() {
-    window._icSearchOpen = false;
+    if (window._icSearchOpenModal === this) window._icSearchOpenModal = null;
     this.contentEl.empty();
   }
 
@@ -1533,7 +1644,7 @@ class SearchModal extends Modal {
 
     const input = contentEl.createEl('input', {
       type: 'text',
-      placeholder: 'Search titles, notes, tags…',
+      placeholder: 'Search titles, notes, tags, authors, sources…',
       cls: 'ic-search-input',
     });
     setTimeout(() => input.focus(), 50);
@@ -1545,10 +1656,13 @@ class SearchModal extends Modal {
       const cards   = this.data.cards.filter(c => c.projectId === this.projectId);
       const matches = q
         ? cards.filter(c => {
-            const hay = [c.cardTitle, c.front, ...(c.tags || [])].join(' ').toLowerCase();
+            const hay = [
+              c.cardTitle, c.front, ...(c.tags || []),
+              c.author, c.title, c.sourceTitle, c.publisher, c.place, c.year, c.url,
+            ].filter(Boolean).join(' ').toLowerCase();
             return hay.includes(q.toLowerCase());
           })
-        : cards.slice(0, 20);
+        : [...cards].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).slice(0, 20);
 
       if (!matches.length) {
         results.createDiv({
@@ -1583,35 +1697,68 @@ class SearchModal extends Modal {
 //  CARD EDITOR MODAL  — single panel, autosave
 // ═════════════════════════════════════════════
 class CardEditorModal extends Modal {
-  constructor(plugin, data, existingCard, defaultCategoryId, projectId, onSave) {
+  constructor(plugin, data, existingCard, defaultCategoryId, projectId, onSave, prefill) {
     super(plugin.app);
     this.plugin    = plugin;
     this.data      = data;
     this.projectId = projectId;
     this.card      = existingCard
       ? { ...existingCard }
-      : { ...emptyCard(defaultCategoryId), projectId };
+      : { ...emptyCard(defaultCategoryId), projectId, ...(prefill || {}) };
     this.isNew       = !existingCard;
     this.onSave      = onSave;
     this._saveStatus = null;
+    // Set when the card is deleted from inside the editor; _persist() then
+    // refuses to write, so a timer armed by the last keystroke can't undelete it.
+    this._discarded  = false;
     // Autosave 2 s after last keystroke
-    this._autosave = debounce(async () => { await this._persist(); this._showSaved(); }, 2000);
+    // A failed autosave is remembered so onClose() retries it instead of
+    // assuming the text is safe (nothing is "pending" once the timer has fired).
+    this._saveFailed = false;
+    this._autosave = debounce(async () => {
+      try { await this._persist(); this._showSaved(); }
+      catch (e) {
+        console.error('[Index Cards] autosave failed:', e);
+        this._saveFailed = true;
+        if (this._saveStatus) this._saveStatus.textContent = '⚠ Not saved';
+      }
+    }, 2000);
   }
 
   async _persist() {
+    if (this._discarded) return;
+    // Any explicit save supersedes a queued one — otherwise the queued timer
+    // fires afterwards and writes an older snapshot over this one.
+    if (this._autosave) this._autosave.cancel();
     const hasContent = (this.card.front || '').trim() || (this.card.cardTitle || '').trim();
     if (!hasContent) return;
     this.card.updatedAt = Date.now();
-    if (this.isNew) {
-      const existing = this.data.cards.find(c => c.id === this.card.id);
-      if (!existing) { this.data.cards.push(this.card); this.isNew = false; }
-      else Object.assign(existing, this.card);
-    } else {
-      const idx = this.data.cards.findIndex(c => c.id === this.card.id);
-      if (idx >= 0) this.data.cards[idx] = { ...this.data.cards[idx], ...this.card };
-    }
-    await saveData(this.plugin, this.data);
+    // Presence on disk is the authority, not the isNew flag. The flag is set
+    // at modal-open and can be wrong by the time an autosave fires — and the
+    // old code decided push-vs-merge against a snapshot frozen at open, so a
+    // card created by any other path in the meantime was written away wholesale.
+    // Both branches collapse to the same rule once the read is fresh:
+    // found → merge, absent → append.
+    await mutateData(this.plugin, data => {
+      const idx = data.cards.findIndex(c => c.id === this.card.id);
+      if (idx >= 0) data.cards[idx] = { ...data.cards[idx], ...this.card };
+      else data.cards.push({ ...this.card });   // copy: later keystrokes must not alias the written record
+    });
+    this.isNew = false;   // it is on disk now, whatever it was before
+    this._saveFailed = false;
     this.onSave();
+  }
+
+  // Last resort when the editor closes and the card can't be written: the
+  // modal is going away, so put the text somewhere the user can still reach.
+  _rescueUnsaved(e) {
+    console.error('[Index Cards] card could not be saved:', e);
+    const text = [this.card.cardTitle, this.card.front].filter(s => (s || '').trim()).join('\n\n');
+    if (!text) return Promise.resolve();
+    return navigator.clipboard.writeText(text).then(
+      () => { new Notice('Index Cards: this card could not be saved. Its text was copied to your clipboard.', 0); },
+      () => { new Notice('Index Cards: this card could not be saved, and its text could not be copied.', 0); }
+    );
   }
 
   _showSaved() {
@@ -1623,7 +1770,20 @@ class CardEditorModal extends Modal {
 
   _touch() { this._autosave(); }
 
-  onOpen() {
+  async onOpen() {
+    // #3: constructor-time data/card is whatever the calling screen had
+    // rendered last — most call sites hand it straight down with no
+    // guarantee it's still current (categories/tags may have changed,
+    // or — for an existing card — the note itself may have been edited
+    // elsewhere since). Re-read fresh right before building the UI, the
+    // same fresh-read discipline mutateData() already applies to writes.
+    const fresh = await loadData(this.plugin);
+    this.data = fresh;
+    if (!this.isNew) {
+      const freshCard = fresh.cards.find(c => c.id === this.card.id);
+      if (freshCard) this.card = { ...freshCard };
+    }
+
     this.modalEl.addClass('ic-modal');
     const widths = { small: '580px', medium: '760px', large: '1020px' };
     const w = widths[this.plugin.settings.editorSize || 'medium'];
@@ -1925,7 +2085,9 @@ class CardEditorModal extends Modal {
         parseTa.style.flex = '1';
         parseWrap.createEl('button', { text: 'Parse', cls: 'ic-btn' }).onclick = () => {
           const filled = this.parseClipboardCitation(parseTa.value);
-          if (filled) { parseTa.value = ''; buildSourcePanel(); }
+          // _touch() arms the autosave. Without it, nothing is "pending", so
+          // pressing Esc after a parse closes the editor and drops the citation.
+          if (filled) { parseTa.value = ''; this._touch(); buildSourcePanel(); }
           else new Notice('Could not parse — please fill fields manually.');
         };
         parseWrap.createEl('button', { text: 'Clear All', cls: 'ic-btn danger' }).onclick = () => {
@@ -2014,9 +2176,18 @@ class CardEditorModal extends Modal {
           message: 'This cannot be undone.',
           confirmText: 'Delete', danger: true,
         })) return;
-        const data = await loadData(this.plugin);
-        data.cards = data.cards.filter(c => c.id !== this.card.id);
-        await saveData(this.plugin, data);
+        this._discarded = true;   // must precede the write; see _persist()
+        try {
+          await mutateData(this.plugin, data => {
+            data.cards = data.cards.filter(c => c.id !== this.card.id);
+          });
+        } catch (e) {
+          // Not deleted, so the card must stay editable and saveable.
+          console.error('[Index Cards] delete failed:', e);
+          this._discarded = false;
+          new Notice('Index Cards: the card was not deleted.');
+          return;
+        }
         this.close();
         if (this.onSave) this.onSave();
       };
@@ -2025,7 +2196,9 @@ class CardEditorModal extends Modal {
     }
 
     footer.createEl('button', { text: 'Close', cls: 'ic-btn primary' }).onclick = async () => {
-      await this._persist();
+      // On failure, onClose() retries once and rescues the text if it fails again.
+      try { await this._persist(); }
+      catch { this._saveFailed = true; }
       this.close();
     };
 
@@ -2062,7 +2235,13 @@ class CardEditorModal extends Modal {
     // the paren; otherwise control falls through to the heuristic engine
     // below, which is left completely unchanged.
     // ═══════════════════════════════════════════════════════════════
-    const fnParen = t.match(/\(([^):]+?):\s*([^)]+?),\s*(1[5-9]\d{2}|20[012]\d)\)/);
+    // #4b: allow an optional trailing annotation after the year — most
+    // commonly a reprint note, "1948; repr. 1970)" — before the closing
+    // paren. Without this, anything past the first year keeps the pattern
+    // from matching at all, so the whole citation falls through to the
+    // general engine below, which isn't built for footnote-style "First
+    // Last" names and mangles the result.
+    const fnParen = t.match(/\(([^):]+?):\s*([^)]+?),\s*(1[5-9]\d{2}|20[012]\d)(?:;[^)]*)?\)/);
     const preHasQuote = fnParen ? /["\u201c\u201d]/.test(t.slice(0, t.indexOf(fnParen[0]))) : false;
     if (fnParen && !preHasQuote) {
       set('place',     fnParen[1].trim());
@@ -2105,10 +2284,68 @@ class CardEditorModal extends Modal {
         authorSegs.push(segs[ai++]);
       // A citation must retain a title — never let the author run swallow everything.
       if (ai >= segs.length && authorSegs.length) { authorSegs.pop(); ai--; }
-      if (authorSegs.length) set('author', authorSegs.join(', '));
+
+      // #2: a "Vol. N: Subtitle" marker one segment later, or #4a: a role
+      // marker with the name attached ("trans. G. W. Butterworth") one
+      // segment later, both mean the segment we just swallowed as an
+      // author continuation was actually the start of the title — the
+      // disambiguating signal (a colon, or the role keyword) shows up one
+      // segment too late for isName()/isFullName() to see it coming.
+      // Give that segment back to the title. Split it at a non-initial
+      // period first ("Wayne. Systematic Theology" → "Wayne" + "Systematic
+      // Theology") so a genuine inverted first name stays with the author;
+      // if there's no such period, the whole segment was title text.
+      const stopSeg = ai < segs.length ? segs[ai] : '';
+      const stopsAtVolSubtitle  = /^Vol(?:ume)?s?\.?\s+\d/i.test(stopSeg) && /:/.test(stopSeg);
+      // Lowercase with a period only: "Ed Stetzer" is a person, not an editor
+      // marker. Plural "eds." isn't here either, because what follows it is the
+      // title of the book the named people edited, not one more person's name.
+      const stopsAtRoleWithName = /^(?:ed\.|trans\.|comp\.|edited by|translated by)\s+\S/.test(stopSeg);
+      // "and Tom Lee" closes a list of people, so it is never title text.
+      const lastIsConjoined = /^(?:and|&)\s/i.test(authorSegs[authorSegs.length - 1] || '');
+      let titleLeadIn = '';
+      if (authorSegs.length >= 2 && !lastIsConjoined && (stopsAtVolSubtitle || stopsAtRoleWithName)) {
+        const lastSeg = authorSegs.pop();
+        const nameSplit = lastSeg.match(/^([A-Z][a-z]+)\.\s+(.+)$/);
+        if (nameSplit) { authorSegs.push(nameSplit[1]); titleLeadIn = nameSplit[2]; }
+        else            { titleLeadIn = lastSeg; }
+      }
+
+      // Editor/translator/compiler role marker: after the author run, a
+      // segment like "eds.", "ed.", "trans.", "comp." designates the named
+      // people as editors rather than authors — it may stand alone or carry
+      // a name directly ("trans. G. W. Butterworth", #4a) depending on
+      // whether the source gave it its own comma. It belongs attached to
+      // the author string (so bibliographies render "…, eds. *Title*" or
+      // "…, trans. G. W. Butterworth"), not swept into the title.
+      let roleSuffix = '';
+      if (authorSegs.length && ai < segs.length) {
+        const roleWithText = segs[ai].match(/^(eds?\.|trans\.|comps?\.|edited by|translated by)\s+(\S.*)$/);
+        if (/^(?:eds?|trans|comps?|edited by|translated by)\.?$/i.test(segs[ai])) {
+          roleSuffix = ', ' + segs[ai].replace(/\.?$/, '.').trim();
+          ai++;
+        } else if (roleWithText) {
+          // The text after the marker is the title when the marker is plural,
+          // when it closes a list ("and Tom Lee, ed. Title"), or when nothing
+          // else is left to be the title. Otherwise it names the editor or
+          // translator ("trans. G. W. Butterworth").
+          const isTitle = /^(?:eds|comps)\./.test(roleWithText[1]) || lastIsConjoined ||
+                          (!titleLeadIn && ai + 1 >= segs.length);
+          if (isTitle) { roleSuffix = ', ' + roleWithText[1]; titleLeadIn = roleWithText[2]; }
+          else         { roleSuffix = ', ' + segs[ai].replace(/\.?$/, '.').trim(); }
+          ai++;
+        }
+      }
+      if (authorSegs.length) {
+        set('author', authorSegs.join(', '));
+        // set() strips the trailing period off a lowercase token (e.g. "eds."),
+        // so append the role marker after sanitizing to keep it intact.
+        if (roleSuffix && this.card.author) this.card.author += roleSuffix;
+      }
 
       // Remaining segments = title (+ an optional trailing series like a commentary set)
       const titleSegs = segs.slice(ai);
+      if (titleLeadIn) titleSegs.unshift(titleLeadIn);
       const isSeriesLike = s => /\b(Commentar(?:y|ies)|Series|Library|Studies|Theology|Bible Speaks|Handbook|Hermeneia|Anchor|Pillar|Tyndale|NICOT|NICNT|NIGTC|BECNT|WBC|Word Biblical)\b/i.test(s);
       if (titleSegs.length >= 2 && isSeriesLike(titleSegs[titleSegs.length - 1])) {
         set('sourceTitle', titleSegs.pop().trim());
@@ -2134,6 +2371,20 @@ class CardEditorModal extends Modal {
       const pageTrail = t.match(/\b(?:1[5-9]\d{2}|20[012]\d),\s*(\d{1,3}(?:[–\-]\d{1,3})?)\.?\s*$/);
       if (pageTrail) set('pages', pageTrail[1]);
     }
+    // Chicago footnote locator when the fast-path above didn't fire — most
+    // commonly because no place was given, so there's no colon inside the
+    // parens for it to key off of, e.g. "(InterVarsity Press, 2007), 112."
+    // A bare page number right after the closing paren is the cited page,
+    // same as the fast-path's own locator (set('citedPages', ...) at the
+    // top of this function) — kept separate from 'pages' above since that
+    // one fires on a different shape (no paren between year and locator).
+    // The parens must hold a name and a year. Journal citations also end in
+    // ")," + digits — "115(2), 273-289" or "23 (1977), 224-33" — but that is the
+    // article's page range, not a page cited on this card.
+    if (!this.card.citedPages) {
+      const trailLoc = t.match(/\([^()]*[A-Za-z][^()]*,\s*(?:1[5-9]\d{2}|20[012]\d)\)\s*,\s*(\d{1,4}(?:[–\-]\d{1,4})?)\.?\s*$/);
+      if (trailLoc) set('citedPages', trailLoc[1]);
+    }
 
     // ── Edition ── "3rd ed." or "3d ed."
     const edM = t.match(/\b(\d+(?:st|nd|rd|th)(?:\s+ed\.)?|[Tt]hird|[Ss]econd|[Ff]irst)\s+ed\./i);
@@ -2158,10 +2409,17 @@ class CardEditorModal extends Modal {
     // Detect no-author web citations: "Title. (Year). Site. URL" or "Title – Site. (Year). URL"
     // In these cases skip author parsing entirely; title is already set from titleQ or set it now
     const hasUrl = /https?:\/\//.test(t);
+    // #3: a question-titled article ("What happened to...?") ends the title
+    // in "?" rather than ".", so the detector below needs to accept either
+    // — a "." before the year is punctuation to drop, but a "?" or "!" is
+    // part of the title and has to be kept.
     const noAuthorApaM = !this.card.title && hasUrl
-      ? t.match(/^([^([\n]{5,}?)\.\s*\(\d{4}\)/)
+      ? t.match(/^([^([\n]{5,}?)([.?!])\s*\(\d{4}\)/)
       : null;
-    if (noAuthorApaM) set('title', noAuthorApaM[1].replace(/\s*[–—-]\s*[^–—\n]+$/, '').trim());
+    if (noAuthorApaM) {
+      const titlePunct = noAuthorApaM[2] === '.' ? '' : noAuthorApaM[2];
+      set('title', (noAuthorApaM[1] + titlePunct).replace(/\s*[–—-]\s*[^–—\n]+$/, '').trim());
+    }
     // For APA no-author web: "Title. (Year). SiteName. URL" — site name goes to publisher
     if (noAuthorApaM && !this.card.publisher) {
       const webSiteM = t.match(/\(\d{4}\)\.\s+([A-Z][^.\n]+?)\.\s+https?:\/\//);
@@ -2278,7 +2536,15 @@ class CardEditorModal extends Modal {
     // ── "in Book Title" patterns (dictionary/encyclopedia/edited volume entries) ──
     // Matches: ", in Title, 3rd ed." or ", in Title, ed. Editor" or ", in Title (Publisher"
     // If an article title is already set, the book goes to sourceTitle; otherwise it IS the title.
-    const inAnyM = t.match(/[,\u201d"]\s+in\s+([^,]+?)(?:\s*,\s*(?:\d+(?:st|nd|rd|th)\s+)?ed[^a-z]|\s*,\s*ed\.|\s*\()/i);
+    // #6: also accept a period before "ed." instead of a comma \u2014 e.g.
+    // '"Garden of God (Place)." in The Anchor Yale Bible Dictionary. ed.
+    // David Noel Freedman.' Without this alternative the whole match fails,
+    // sourceTitle is never set here, and a later fallback block (built to
+    // find a series/dictionary title after the article title) has no way
+    // to tell "David Noel Freedman" isn't one \u2014 its name-shape check only
+    // expects a first+last name, not a middle name \u2014 so the editor's name
+    // lands in sourceTitle instead of the dictionary title.
+    const inAnyM = t.match(/[,\u201d"]\s+in\s+([^,]+?)(?:\s*,\s*(?:\d+(?:st|nd|rd|th)\s+)?ed[^a-z]|\s*,\s*ed\.|\s*\.\s*ed\.|\s*\()/i);
     if (inAnyM) {
       if (this.card.title) set('sourceTitle', inAnyM[1].trim());
       else set('title', inAnyM[1].trim());
@@ -2331,6 +2597,16 @@ class CardEditorModal extends Modal {
     else if (volDot)    { set('volume', volDot[1]);  set('issue', volDot[2]); }
     else if (volJrnl)   { set('volume', volJrnl[1]); }
     else if (volWord)   { set('volume', volWord[1]); if (issWord) set('issue', issWord[1]); }
+
+    // #1: APA parenthetical series note trailing the title, e.g.
+    // "(Studies in Biblical Theology, Vol. 12)". volWord above already
+    // pulls out "Vol. 12" as the volume; the series name itself had no
+    // field to land in and was silently dropped. Anchored tightly (must
+    // end "..., Vol. N)") so it doesn't fire on an unrelated parenthetical.
+    if (!this.card.sourceTitle) {
+      const apaSeriesM = t.match(/\(([A-Z][^(),]+),\s*[Vv]ol\.\s*\d+\)/);
+      if (apaSeriesM) set('sourceTitle', apaSeriesM[1].trim());
+    }
 
     // ── "edited by" → sourceTitle (Chicago/MLA chapter-in-edited-volume) ──
     // Handles: '"Title." In Book, edited by ...' and '"Title." Book, edited by ...'
@@ -2490,14 +2766,26 @@ class CardEditorModal extends Modal {
       if (titleStart !== -1) {
         const afterTitle = t.slice(titleStart + this.card.title.length);
         const seriesRe = /[.,]\s+([A-Z][^.;]{4,60})(?=\.\s+[A-Z(])/g;
-        // Matches "Name and Other Name" patterns — used to skip editor-name segments
-        const isNameLike = s => /^(?:[A-Z]\.\s*)*[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?(?: and (?:[A-Z]\.\s*)*[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)*$/.test(s);
+        // Matches "Name and Other Name" patterns — used to skip editor-name
+        // segments. Three capitalized words look the same whether they are a
+        // person ("David Noel Freedman") or a series ("Harvard Semitic
+        // Monographs"), so three words only count as a name straight after an
+        // editor marker. Two words count anywhere. A reference-work keyword
+        // still forces false either way.
+        const nameExcludeWords = /\b(Commentar(?:y|ies)|Series|Library|Studies|Theology|Dictionary|Encyclopedia|Handbook|Bible|Journal|Review)\b/i;
+        const isNameLike = (s, before) => {
+          const maxWords = /\b(?:eds?\.|edited by)\s*$/i.test(before) ? 3 : 2;
+          return !nameExcludeWords.test(s) && s.split(/\s+and\s+/i).every(person => {
+            const words = person.trim().split(/\s+/);
+            return words.length >= 1 && words.length <= maxWords && words.every(w => /^[A-Z][a-z]*\.?$/.test(w));
+          });
+        };
         let sm;
         while ((sm = seriesRe.exec(afterTitle)) !== null) {
           const candidate = sm[1].trim();
           if (/^[Ee]dited\b/i.test(candidate)) continue;           // skip "Edited by J..." sentence
           if (/Press|Publisher|Eerdmans|Zondervan|Baker|Fortress|Brill|Mohr/i.test(candidate)) break;
-          if (isNameLike(candidate)) continue;                     // skip "Motyer and Derek Tidball"
+          if (isNameLike(candidate, afterTitle.slice(0, sm.index + 1))) continue;   // skip "Motyer and Derek Tidball"
           set('sourceTitle', candidate);
           break;
         }
@@ -2517,7 +2805,19 @@ class CardEditorModal extends Modal {
 
     return filled;
   }
-  onClose() { this.contentEl.empty(); }
+
+  // Flush rather than abandon. A pending autosave would otherwise fire up to 2 s
+  // after the modal is gone and write this modal's stale whole-file snapshot,
+  // clobbering anything saved in the meantime (e.g. a quick capture).
+  // Note: Modal.onClose is synchronous, so this can't be awaited — the write
+  // starts immediately, which shrinks the collision window to roughly one tick.
+  onClose() {
+    if (this._autosave && (this._autosave.pending() || this._saveFailed)) {
+      this._persist().catch(e => this._rescueUnsaved(e));
+    }
+    this._saveStatus = null;   // node is about to be detached
+    this.contentEl.empty();
+  }
 }
 
 // ═════════════════════════════════════════════
@@ -2702,6 +3002,7 @@ class MoveCategoryModal extends Modal {
     super(plugin.app);
     this.plugin    = plugin; this.card = card; this.data = data;
     this.projectId = projectId; this.onMove = onMove;
+    this._pendingCat = null;
   }
 
   onOpen() {
@@ -2718,8 +3019,23 @@ class MoveCategoryModal extends Modal {
 
     for (const cat of this.data.categories.filter(c => c.projectId === this.projectId && !c.parentId)) {
       const btn = list.createEl('button', { text: cat.name, cls: 'ic-btn' });
-      if (cat.id === this.card.categoryId) btn.style.opacity = '0.4';
+      // Dimmed only when the card sits directly in this category. A card in one
+      // of its subcategories is not already at this destination — moving it up
+      // to the parent is a real move.
+      if (cat.id === this.card.categoryId && !this.card.subcategoryId) btn.style.opacity = '0.4';
       btn.onclick = async () => { this.card.categoryId = cat.id; this.card.subcategoryId = null; await this.doMove(); };
+
+      // Subcategories indented beneath their parent. Selecting one sets both
+      // the parent category and the subcategory in a single click.
+      for (const sub of this.data.categories.filter(c => c.parentId === cat.id)) {
+        const sBtn = list.createEl('button', { text: '↳ ' + sub.name, cls: 'ic-btn ic-move-subcat' });
+        if (sub.id === this.card.subcategoryId) sBtn.style.opacity = '0.4';
+        sBtn.onclick = async () => {
+          this.card.categoryId    = cat.id;
+          this.card.subcategoryId = sub.id;
+          await this.doMove();
+        };
+      }
     }
 
     // Allow creating a new category on the spot
@@ -2739,8 +3055,12 @@ class MoveCategoryModal extends Modal {
         const name = input.value.trim();
         if (!name) { new Notice('Please enter a category name.'); return; }
         const newCat = { id: makeId(), name, parentId: null, projectId: this.projectId };
-        this.data.categories.push(newCat);
+        // Handed to doMove() so the category is created inside the same fresh
+        // read that moves the card — pushing it onto the held snapshot here
+        // would write a stale world back to disk.
+        this._pendingCat = newCat;
         this.card.categoryId = newCat.id;
+        this.card.subcategoryId = null;
         await this.doMove();
       };
       footer.createEl('button', { text: 'Create & Move', cls: 'ic-btn primary' }).onclick = doCreate;
@@ -2752,9 +3072,23 @@ class MoveCategoryModal extends Modal {
   }
 
   async doMove() {
-    const idx = this.data.cards.findIndex(c => c.id === this.card.id);
-    if (idx >= 0) this.data.cards[idx] = this.card;
-    await saveData(this.plugin, this.data);
+    // Only the fields this modal owns are applied. The old code did
+    // `data.cards[idx] = this.card`, replacing the whole record with the
+    // copy held since modal-open — which clobbers any concurrent edit to
+    // body, title or citation, not just the index. Fresh-reading the index
+    // alone would not have fixed that.
+    const pendingCat = this._pendingCat;
+    await mutateData(this.plugin, data => {
+      if (pendingCat && !data.categories.some(c => c.id === pendingCat.id)) {
+        data.categories.push(pendingCat);
+      }
+      const idx = data.cards.findIndex(c => c.id === this.card.id);
+      if (idx >= 0) {
+        data.cards[idx].categoryId    = this.card.categoryId;
+        data.cards[idx].subcategoryId = this.card.subcategoryId;
+      }
+    });
+    this._pendingCat = null;
     this.close();
     this.onMove();
   }
@@ -2976,14 +3310,21 @@ class MoveToProjectModal extends Modal {
     footer.createEl('button', { text: 'Move Card', cls: 'ic-btn primary' }).onclick = async () => {
       const destProjectId = sel.value;
       const destCatId     = catSel.value || null;
-      const idx = this.data.cards.findIndex(c => c.id === this.card.id);
-      if (idx >= 0) {
-        this.data.cards[idx].projectId  = destProjectId;
-        this.data.cards[idx].categoryId = destCatId;
-      }
-      await saveData(this.plugin, this.data);
+      // Index recomputed against fresh data — the snapshot's index may be
+      // stale or the card may have moved since this modal opened.
+      const destName = await mutateData(this.plugin, data => {
+        const idx = data.cards.findIndex(c => c.id === this.card.id);
+        if (idx >= 0) {
+          data.cards[idx].projectId     = destProjectId;
+          data.cards[idx].categoryId    = destCatId;
+          // Cross-project move must clear the subcategory — it points at a
+          // category in the old project and is meaningless in the new one.
+          data.cards[idx].subcategoryId = null;
+        }
+        return data.projects.find(p => p.id === destProjectId)?.name || 'project';
+      });
       this.close();
-      new Notice(`Card moved to "${this.data.projects.find(p => p.id === destProjectId)?.name || 'project'}".`);
+      new Notice(`Card moved to "${destName}".`);
       this.onMove();
     };
   }
@@ -3622,7 +3963,7 @@ class NewProjectModal extends Modal {
     footer.createEl('button', { text: 'Cancel', cls: 'ic-btn' }).onclick = () => this.close();
     const doSave = async () => {
       const name = input.value.trim(); if (!name) { new Notice('Please enter a project name.'); return; }
-      this.data.projects.push(emptyProject(name)); await saveData(this.plugin, this.data); this.close(); this.onSave();
+      await mutateData(this.plugin, data => { data.projects.push(emptyProject(name)); }); this.close(); this.onSave();
     };
     footer.createEl('button', { text: 'Create Project', cls: 'ic-btn primary' }).onclick = doSave;
     input.onkeydown = e => { if (e.key === 'Enter') doSave(); };
@@ -3641,9 +3982,11 @@ class RenameProjectModal extends Modal {
     footer.createEl('button', { text: 'Cancel', cls: 'ic-btn' }).onclick = () => this.close();
     const doSave = async () => {
       const name = input.value.trim(); if (!name) return;
-      const idx = this.data.projects.findIndex(p => p.id === this.project.id);
-      if (idx >= 0) this.data.projects[idx].name = name;
-      await saveData(this.plugin, this.data); this.close(); this.onSave();
+      await mutateData(this.plugin, data => {
+        const idx = data.projects.findIndex(p => p.id === this.project.id);
+        if (idx >= 0) data.projects[idx].name = name;
+      });
+      this.close(); this.onSave();
     };
     footer.createEl('button', { text: 'Rename', cls: 'ic-btn primary' }).onclick = doSave;
     input.onkeydown = e => { if (e.key === 'Enter') doSave(); };
@@ -3665,8 +4008,8 @@ class NewCategoryModal extends Modal {
     footer.createEl('button', { text: 'Cancel', cls: 'ic-btn' }).onclick = () => this.close();
     const doSave = async () => {
       const name = input.value.trim(); if (!name) { new Notice('Please enter a name.'); return; }
-      this.data.categories.push({ ...emptyCategory(name), projectId: this.projectId });
-      await saveData(this.plugin, this.data); this.close(); this.onSave();
+      await mutateData(this.plugin, data => { data.categories.push({ ...emptyCategory(name), projectId: this.projectId }); });
+      this.close(); this.onSave();
     };
     footer.createEl('button', { text: 'Create', cls: 'ic-btn primary' }).onclick = doSave;
     input.onkeydown = e => { if (e.key === 'Enter') doSave(); };
@@ -3685,9 +4028,11 @@ class RenameCategoryModal extends Modal {
     footer.createEl('button', { text: 'Cancel', cls: 'ic-btn' }).onclick = () => this.close();
     const doSave = async () => {
       const name = input.value.trim(); if (!name) return;
-      const idx = this.data.categories.findIndex(c => c.id === this.cat.id);
-      if (idx >= 0) this.data.categories[idx].name = name;
-      await saveData(this.plugin, this.data); this.close(); this.onSave();
+      await mutateData(this.plugin, data => {
+        const idx = data.categories.findIndex(c => c.id === this.cat.id);
+        if (idx >= 0) data.categories[idx].name = name;
+      });
+      this.close(); this.onSave();
     };
     footer.createEl('button', { text: 'Rename', cls: 'ic-btn primary' }).onclick = doSave;
     input.onkeydown = e => { if (e.key === 'Enter') doSave(); };
@@ -3709,8 +4054,8 @@ class NewSubcategoryModal extends Modal {
     footer.createEl('button', { text: 'Cancel', cls: 'ic-btn' }).onclick = () => this.close();
     const doSave = async () => {
       const name = input.value.trim(); if (!name) { new Notice('Please enter a name.'); return; }
-      this.data.categories.push({ ...emptyCategory(name), projectId: this.projectId, parentId: this.parentCatId });
-      await saveData(this.plugin, this.data); this.close(); this.onSave();
+      await mutateData(this.plugin, data => { data.categories.push({ ...emptyCategory(name), projectId: this.projectId, parentId: this.parentCatId }); });
+      this.close(); this.onSave();
     };
     footer.createEl('button', { text: 'Create', cls: 'ic-btn primary' }).onclick = doSave;
     input.onkeydown = e => { if (e.key === 'Enter') doSave(); };
@@ -3729,9 +4074,11 @@ class RenameSubcategoryModal extends Modal {
     footer.createEl('button', { text: 'Cancel', cls: 'ic-btn' }).onclick = () => this.close();
     const doSave = async () => {
       const name = input.value.trim(); if (!name) return;
-      const idx = this.data.categories.findIndex(c => c.id === this.sub.id);
-      if (idx >= 0) this.data.categories[idx].name = name;
-      await saveData(this.plugin, this.data); this.close(); this.onSave();
+      await mutateData(this.plugin, data => {
+        const idx = data.categories.findIndex(c => c.id === this.sub.id);
+        if (idx >= 0) data.categories[idx].name = name;
+      });
+      this.close(); this.onSave();
     };
     footer.createEl('button', { text: 'Rename', cls: 'ic-btn primary' }).onclick = doSave;
     input.onkeydown = e => { if (e.key === 'Enter') doSave(); };
@@ -3742,14 +4089,101 @@ class RenameSubcategoryModal extends Modal {
 // ═════════════════════════════════════════════
 //  MAIN PLUGIN
 // ═════════════════════════════════════════════
+// Fuzzy project picker — used by quick-capture when no valid last-active project.
+class ProjectPickerModal extends FuzzySuggestModal {
+  constructor(app, projects, onChoose) {
+    super(app);
+    this.projects = projects;
+    this.onChoose = onChoose;
+    this.setPlaceholder('Pick a project for this card…');
+  }
+  getItems()          { return this.projects; }
+  getItemText(p)      { return p.name; }
+  onChooseItem(p)     { this.onChoose(p); }
+}
+
 class IndexCardsPlugin extends Plugin {
   async onload() {
     await this.loadSettings();
+    await backupDataFile(this);   // once-per-session snapshot of the card data file
     this.registerView(VIEW_TYPE,         leaf => new IndexCardsView(leaf, this));
     this.registerView(VIEW_TYPE_SANDBOX, leaf => new OutlineSandboxView(leaf, this));
     this.addRibbonIcon('library', 'Index Cards', () => this.openView());
     this.addCommand({ id: 'open-index-cards', name: 'Open Index Cards', callback: () => this.openView() });
+    this.addCommand({
+      id: 'quick-capture-card',
+      name: 'Quick capture selection to new card',
+      editorCallback: (editor, view) => this.quickCapture(editor, view),
+    });
     this.addSettingTab(new IndexCardsSettingTab(this.app, this));
+  }
+
+  // ── Quick capture ──────────────────────────────────────────────
+  // Select text in any note → hotkey → new card in the last-active project,
+  // with a wikilink back to the source note stamped into the body.
+
+  // Build the card body: selection + a wikilink to the source note (if known).
+  _buildCaptureBody(selection, srcName) {
+    const sel = (selection || '').trim();
+    if (!sel) return '';
+    return srcName ? `${sel}\n\n— [[${srcName}]]` : sel;
+  }
+
+  // Decide where a captured card should go. Pure: returns a descriptor.
+  //   { kind: 'none' }                    → no projects exist; can't capture
+  //   { kind: 'direct', project }         → valid last-active project found
+  //   { kind: 'pick', projects }          → projects exist but none is active
+  _resolveCaptureTarget(data, lastActiveId) {
+    if (!data.projects || !data.projects.length) return { kind: 'none' };
+    const found = data.projects.find(p => p.id === lastActiveId);
+    if (found) return { kind: 'direct', project: found };
+    return { kind: 'pick', projects: data.projects };
+  }
+
+  async quickCapture(editor, view) {
+    const sel = (editor.getSelection() || '').trim();
+    if (!sel) { new Notice('Select some text first to capture it as a card.'); return; }
+
+    const data    = await loadData(this);
+    // The fallback store is empty, so without this the user is told they have no projects.
+    if (_dataLoadError) { new Notice('Index Cards: nothing captured — the data file could not be read.'); return; }
+    const srcName = view?.file?.basename || null;
+    const target  = this._resolveCaptureTarget(data, this.settings.lastActiveProjectId);
+
+    if (target.kind === 'none') {
+      new Notice('No projects yet — open Index Cards and create one first.');
+      return;
+    }
+    if (target.kind === 'direct') {
+      await this._captureToProject(data, target.project, sel, srcName);
+      return;
+    }
+    // kind === 'pick' — projects exist but none is active; let the user choose.
+    new ProjectPickerModal(this.app, target.projects, async (proj) => {
+      // Reload fresh in case anything changed while the picker was open.
+      const fresh = await loadData(this);
+      const p = fresh.projects.find(x => x.id === proj.id) || proj;
+      await this._captureToProject(fresh, p, sel, srcName);
+    }).open();
+  }
+
+  async _captureToProject(data, project, selection, srcName) {
+    const card = emptyCard(null);
+    card.projectId = project.id;
+    card.front     = this._buildCaptureBody(selection, srcName);
+    await mutateData(this, fresh => { fresh.cards.push(card); });
+
+    // Make this the last-active project so the next capture defaults here.
+    this.settings.lastActiveProjectId = project.id;
+    await this.saveSettings();
+
+    new Notice(`Card captured to “${project.name}.”`);
+
+    // If an Index Cards view is open on this project, refresh it so the card shows.
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
+      const v = leaf.view;
+      if (v && v.activeProjectId === project.id && typeof v.refresh === 'function') v.refresh();
+    }
   }
 
   async loadSettings()  { this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData()); }
